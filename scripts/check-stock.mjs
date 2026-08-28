@@ -64,8 +64,10 @@ async function upsertProduct(site, { url, name, image = null, colorDesc = null }
 
 async function runLenssis() {
   console.log("── 렌시스 스윕");
-  const listed = await fetchLenssisProducts(fetchHtml);
-  console.log(`목록에서 ${listed.length}개 확인`);
+  const all = await fetchLenssisProducts(fetchHtml);
+  // 원데이 상품만 추적 (1개월용 등 제외)
+  const listed = all.filter((p) => p.name.includes("원데이"));
+  console.log(`목록 ${all.length}개 중 원데이 ${listed.length}개 추적`);
   for (const item of listed) {
     const product = await upsertProduct("lenssis", item);
     if (product) await applyStatus(product, item.inStock, { image_url: item.image ?? product.image_url });

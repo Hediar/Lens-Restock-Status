@@ -3,8 +3,8 @@
 const BASE = "https://lenbling.com";
 const SEARCH_URL = `${BASE}/product/search.html?keyword=%ED%93%A8%EC%96%B4%EB%B8%94`;
 
-// 퓨어블 "기본 사이즈"만: 접두어 변형 제외
-const EXCLUDE = /빅퓨어블|메가퓨어블|라지퓨어블|스몰퓨어블|원데이|난시|주문제작|커스텀/;
+// 원데이 퓨어블만 추적 (난시/주문제작 제외)
+const EXCLUDE = /난시|주문제작|커스텀/;
 
 export async function discoverPureble(fetchFn) {
   const seen = new Set();
@@ -25,7 +25,7 @@ export async function discoverPureble(fetchFn) {
       } catch {
         continue;
       }
-      if (!slug.startsWith("퓨어블-")) continue;
+      if (!slug.includes("퓨어블") || !slug.includes("원데이")) continue;
       if (EXCLUDE.test(slug)) continue;
       const path = `/product/${encodeURIComponent(slug)}/${m[2]}/`;
       if (seen.has(path)) continue;
