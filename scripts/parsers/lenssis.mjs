@@ -64,3 +64,55 @@ export function parseLenssisSingle(html) {
   if (/\boutofstock\b/.test(m[1])) return false;
   return null;
 }
+
+// ── 재고 판정 v2: lenssis-online.com의 정상배송 화이트리스트 사용 ──
+// 사이트 전 페이지에 NORMAL_SHIPPING_PRODUCTS(정상배송 = 재고 보유 도수 목록)가
+// 임베드됨. 목록에 없는 상품/옵션은 배송지연(재고 없음).
+const ONLINE_PAGE = "https://lenssis-online.com/series/?idx=130";
+
+export function normalizeText(s) {
+  return String(s)
+    .normalize("NFC")
+    .replace(/[\s​‌‍﻿]/g, "")
+    .toLowerCase();
+}
+
+export async function fetchShippingMap(fetchFn) {
+  const html = await fetchFn(ONLINE_PAGE);
+  if (!html) return null;
+  const m = html.match(/const NORMAL_SHIPPING_PRODUCTS = (\{[\s\S]*?\});/);
+  if (!m) return null;
+  let raw;
+  try {
+    raw = new Function(`return (${m[1]})`)();
+  } catch {
+    return null;
+  }
+  const map = new Map();
+  for (const [name, opts] of Object.entries(raw)) {
+    const list = Array.isArray(opts) ? opts : [];
+    map.set(normalizeText(name), {
+      all: list.length === 0 || list.includes("*"),
+      options: new Set(list.map(normalizeText)),
+    });
+  }
+  return map;
+}
+
+// 무도수(0.00) 재고 판정: 맵에 없으면 전 옵션 지연 → 품절 취급
+export function planoInStock(map, productName) {
+  const entry = map.get(normalizeText(productName));
+  if (!entry) return false;
+  return entry.all || entry.options.has(normalizeText("무도수"));
+}
+
+// lenssis.site 상품 페이지에서 '구매하기' 버튼의 lenssis-online 링크 추출
+export function extractBuyUrl(html) {
+  if (!html) return null;
+  const re = /href="(https:\/\/lenssis-online\.com\/[^"]+)"[^>]*>([\s\S]{0,80}?)<\/a>/g;
+  let m;
+  while ((m = re.exec(html)) !== null) {
+    if (m[2].includes("구매하기")) return m[1];
+  }
+  return null;
+}

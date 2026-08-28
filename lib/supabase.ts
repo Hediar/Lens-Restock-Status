@@ -19,6 +19,7 @@ export interface Product {
   image_url: string | null;
   color_desc: string | null;
   in_stock: boolean | null; // null = 아직 확인 전
+  buy_url: string | null;
   starred: boolean;
   tracking: boolean;
   last_checked_at: string | null;

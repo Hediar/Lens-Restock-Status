@@ -164,7 +164,7 @@ export default function Home() {
                 <div className="hrow">아직 전환 이력이 없어요.</div>
               )}
               <div className="actions">
-                <a className="btn" href={p.url} target="_blank" rel="noreferrer">
+                <a className="btn" href={p.buy_url ?? p.url} target="_blank" rel="noreferrer">
                   상품 페이지 열기
                 </a>
               </div>
