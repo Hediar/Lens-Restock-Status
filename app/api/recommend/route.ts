@@ -124,10 +124,11 @@ export async function POST(req: NextRequest) {
       : String(text);
     const queryEmbedding = await embed(key, query);
 
-    const rpcRes = await fetch(`${SUPABASE_URL}/rest/v1/rpc/match_products`, {
+    // 사이트별 top-N 검색 (렌즈라라 대형 카탈로그의 후보 독점 방지)
+    const rpcRes = await fetch(`${SUPABASE_URL}/rest/v1/rpc/match_products_diverse`, {
       method: "POST",
       headers: { "Content-Type": "application/json", apikey: ANON_KEY, Authorization: `Bearer ${ANON_KEY}` },
-      body: JSON.stringify({ query_embedding: queryEmbedding, match_count: 80 }),
+      body: JSON.stringify({ query_embedding: queryEmbedding, per_site: 6 }),
     });
     if (!rpcRes.ok) throw new Error(`검색 실패 ${rpcRes.status}: ${(await rpcRes.text()).slice(0, 150)}`);
     type Match = { product_id: string; name: string; site: string; url: string; buy_url: string | null; image_url: string | null; in_stock: boolean | null; similarity: number };
