@@ -9,7 +9,7 @@ export const SUPABASE_ANON_KEY =
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-export type Site = "lenssis" | "lenbling" | "lenslala" | "other";
+export type Site = "lenssis" | "lenbling" | "lenslala" | "olens" | "lensme" | "other";
 
 export interface Product {
   id: string;
@@ -61,6 +61,8 @@ export const SITE_LABEL: Record<Site, string> = {
   lenssis: "렌시스",
   lenbling: "렌블링",
   lenslala: "렌즈라라",
+  olens: "오렌즈",
+  lensme: "렌즈미",
   other: "기타",
 };
 

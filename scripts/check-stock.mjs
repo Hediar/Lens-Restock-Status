@@ -27,6 +27,8 @@ import {
 import { discoverPureble, parseLenblingProduct } from "./parsers/lenbling.mjs";
 import { fetchLenslalaOneDay } from "./parsers/lenslala.mjs";
 import { parseGenericProduct } from "./parsers/generic.mjs";
+import { fetchOlensOneDay } from "./parsers/olens.mjs";
+import { fetchLensmeOneDay } from "./parsers/lensme.mjs";
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -236,36 +238,39 @@ async function runLenbling() {
 }
 
 // 렌즈라라: 추천 전용 카탈로그 — 24시간에 1회만 동기화
-async function runLenslala() {
+// 추천 전용 카탈로그 공용 동기화 (24시간에 1회, 배치 upsert)
+async function syncCatalog(site, label, fetchItems) {
   const { data: newest } = await db
     .from("products")
     .select("last_checked_at")
-    .eq("site", "lenslala")
+    .eq("site", site)
     .order("last_checked_at", { ascending: false })
     .limit(1);
   const last = newest?.[0]?.last_checked_at;
   if (last && Date.now() - new Date(last).getTime() < 24 * 3600 * 1000) {
-    console.log("── 렌즈라라: 24시간 내 동기화됨 — 스킵");
+    console.log(`── ${label}: 24시간 내 동기화됨 — 스킵`);
     return;
   }
-  console.log("── 렌즈라라 카탈로그 동기화 (추천 전용)");
-  const items = await fetchLenslalaOneDay(fetchHtml);
+  console.log(`── ${label} 카탈로그 동기화 (추천 전용)`);
+  const items = await fetchItems();
   console.log(`원데이 ${items.length}개`);
-  // 배치 upsert: 한 건씩 등록하면 타임아웃 위험
   const now = new Date().toISOString();
   for (let i = 0; i < items.length; i += 200) {
     const rows = items.slice(i, i + 200).map((item) => ({
-      site: "lenslala", name: item.name, url: item.url,
+      site, name: item.name, url: item.url,
       image_url: item.image, tracking: false, last_checked_at: now,
     }));
     const { error } = await db
       .from("products")
       .upsert(rows, { onConflict: "url", ignoreDuplicates: true });
-    if (error) console.warn(`렌즈라라 upsert 실패: ${error.message}`);
+    if (error) console.warn(`${label} upsert 실패: ${error.message}`);
   }
-  // 이번 동기화에 없는 기존 렌즈라라 행의 시각만 갱신 (24h 스킵 판단용)
-  await db.from("products").update({ last_checked_at: now }).eq("site", "lenslala");
+  await db.from("products").update({ last_checked_at: now }).eq("site", site);
 }
+
+const runLenslala = () => syncCatalog("lenslala", "렌즈라라", () => fetchLenslalaOneDay(fetchHtml));
+const runOlens = () => syncCatalog("olens", "오렌즈", () => fetchOlensOneDay(fetchHtml));
+const runLensme = () => syncCatalog("lensme", "렌즈미", () => fetchLensmeOneDay(fetchHtml));
 
 // 사용자가 URL로 등록한 상품(site='other') — 범용 판정으로 체크
 async function runOther() {
@@ -299,7 +304,7 @@ async function indexEmbeddings() {
   const todo = (products ?? []).filter((p) => !done.has(p.id));
   if (!todo.length) return;
   console.log(`── 임베딩 색인: ${todo.length}개`);
-  const siteLabel = { lenssis: "렌시스", lenbling: "렌블링", lenslala: "렌즈라라", other: "기타" };
+  const siteLabel = { lenssis: "렌시스", lenbling: "렌블링", lenslala: "렌즈라라", olens: "오렌즈", lensme: "렌즈미", other: "기타" };
   for (let i = 0; i < todo.length; i += 100) {
     const batch = todo.slice(i, i + 100);
     const inputs = batch.map((p) =>
@@ -329,6 +334,8 @@ const t0 = Date.now();
 await runLenssis();
 await runLenbling();
 await runLenslala();
+await runOlens();
+await runLensme();
 await runOther();
 await indexEmbeddings();
 const { count } = await db

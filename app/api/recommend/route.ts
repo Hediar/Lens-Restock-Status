@@ -127,7 +127,7 @@ export async function POST(req: NextRequest) {
     const rpcRes = await fetch(`${SUPABASE_URL}/rest/v1/rpc/match_products`, {
       method: "POST",
       headers: { "Content-Type": "application/json", apikey: ANON_KEY, Authorization: `Bearer ${ANON_KEY}` },
-      body: JSON.stringify({ query_embedding: queryEmbedding, match_count: 12 }),
+      body: JSON.stringify({ query_embedding: queryEmbedding, match_count: 30 }),
     });
     if (!rpcRes.ok) throw new Error(`검색 실패 ${rpcRes.status}: ${(await rpcRes.text()).slice(0, 150)}`);
     type Match = { product_id: string; name: string; site: string; url: string; buy_url: string | null; image_url: string | null; in_stock: boolean | null; similarity: number };
@@ -137,9 +137,21 @@ export async function POST(req: NextRequest) {
     }
 
     // ③ 검색 결과만 근거로 추천 생성 (재고 있는 상품 우선)
-    const candidates = [...matches].sort(
-      (a, b) => Number(b.in_stock !== false) - Number(a.in_stock !== false) || b.similarity - a.similarity
+    // 재고있음(2) > 재고정보없음(1) > 품절(0) 순, 같은 등급은 유사도순
+    const stockScore = (m: Match) => (m.in_stock === true ? 2 : m.in_stock === null ? 1 : 0);
+    const ranked = [...matches].sort(
+      (a, b) => stockScore(b) - stockScore(a) || b.similarity - a.similarity
     );
+    // 사이트 다양성: 한 사이트가 후보를 독점하지 않게 사이트당 최대 4개
+    const perSite = new Map<string, number>();
+    const candidates: Match[] = [];
+    for (const m of ranked) {
+      const n = perSite.get(m.site) ?? 0;
+      if (n >= 4) continue;
+      perSite.set(m.site, n + 1);
+      candidates.push(m);
+      if (candidates.length >= 14) break;
+    }
     const listText = candidates
       .map((m, i) => `${i + 1}. [${m.product_id}] ${m.name} (${m.site}, ${m.in_stock === false ? "품절" : m.in_stock ? "재고있음" : "재고정보없음"})`)
       .join("\n");
@@ -149,7 +161,7 @@ export async function POST(req: NextRequest) {
         {
           role: "system",
           content:
-            "컬러렌즈 추천 도우미. 아래 후보 목록에 있는 상품만으로 3~5개를 추천하고, 각 상품마다 사용자 특징과 연결한 한 줄 이유를 써라. 목록에 없는 상품을 지어내지 마라. 재고있음 상품을 우선하라. 한국어.",
+            "컬러렌즈 추천 도우미. 아래 후보 목록에 있는 상품만으로 4~5개를 추천하고, 각 상품마다 사용자 특징과 연결한 한 줄 이유를 써라. 목록에 없는 상품을 지어내지 마라. 재고있음 상품을 우선하되, 가능하면 여러 사이트(렌시스·렌블링·렌즈라라·오렌즈·렌즈미)의 상품을 섞어서 추천하라. 한국어.",
         },
         {
           role: "user",
