@@ -127,7 +127,7 @@ export async function POST(req: NextRequest) {
     const rpcRes = await fetch(`${SUPABASE_URL}/rest/v1/rpc/match_products`, {
       method: "POST",
       headers: { "Content-Type": "application/json", apikey: ANON_KEY, Authorization: `Bearer ${ANON_KEY}` },
-      body: JSON.stringify({ query_embedding: queryEmbedding, match_count: 30 }),
+      body: JSON.stringify({ query_embedding: queryEmbedding, match_count: 80 }),
     });
     if (!rpcRes.ok) throw new Error(`검색 실패 ${rpcRes.status}: ${(await rpcRes.text()).slice(0, 150)}`);
     type Match = { product_id: string; name: string; site: string; url: string; buy_url: string | null; image_url: string | null; in_stock: boolean | null; similarity: number };
@@ -142,15 +142,23 @@ export async function POST(req: NextRequest) {
     const ranked = [...matches].sort(
       (a, b) => stockScore(b) - stockScore(a) || b.similarity - a.similarity
     );
-    // 사이트 다양성: 한 사이트가 후보를 독점하지 않게 사이트당 최대 4개
+    // 사이트 다양성: 사이트당 최대 3개 + 재고 추적 사이트(렌시스/렌블링)의
+    // 상위 매치는 항상 후보에 포함 (재고 정보가 있는 추천을 보장)
     const perSite = new Map<string, number>();
     const candidates: Match[] = [];
-    for (const m of ranked) {
+    const pick = (m: Match, cap: number) => {
       const n = perSite.get(m.site) ?? 0;
-      if (n >= 4) continue;
+      if (n >= cap || candidates.includes(m)) return;
       perSite.set(m.site, n + 1);
       candidates.push(m);
-      if (candidates.length >= 14) break;
+    };
+    for (const m of ranked) {
+      if (m.site === "lenssis" || m.site === "lenbling") pick(m, 3);
+      if (candidates.length >= 6) break;
+    }
+    for (const m of ranked) {
+      pick(m, 3);
+      if (candidates.length >= 15) break;
     }
     const listText = candidates
       .map((m, i) => `${i + 1}. [${m.product_id}] ${m.name} (${m.site}, ${m.in_stock === false ? "품절" : m.in_stock ? "재고있음" : "재고정보없음"})`)
