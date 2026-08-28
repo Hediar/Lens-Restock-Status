@@ -36,8 +36,13 @@ export async function POST(req: NextRequest) {
       redirect: "follow",
     });
     if (!res.ok) {
+      const blocked = res.status === 403 || res.status === 429;
       return NextResponse.json(
-        { error: `페이지를 열 수 없어요 (HTTP ${res.status}).` },
+        {
+          error: blocked
+            ? "이 사이트는 자동 접근(크롤링)을 차단하고 있어서 추적할 수 없어요. 대형 브랜드 공식몰은 대부분 차단합니다."
+            : `페이지를 열 수 없어요 (HTTP ${res.status}).`,
+        },
         { status: 502 }
       );
     }
