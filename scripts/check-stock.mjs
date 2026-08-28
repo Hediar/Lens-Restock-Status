@@ -24,6 +24,7 @@ import {
   judgePlanoFromOms,
 } from "./parsers/lenssis.mjs";
 import { discoverPureble, parseLenblingProduct } from "./parsers/lenbling.mjs";
+import { fetchLenslalaOneDay } from "./parsers/lenslala.mjs";
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -228,9 +229,79 @@ async function runLenbling() {
   }
 }
 
+// 렌즈라라: 추천 전용 카탈로그 — 24시간에 1회만 동기화
+async function runLenslala() {
+  const { data: newest } = await db
+    .from("products")
+    .select("last_checked_at")
+    .eq("site", "lenslala")
+    .order("last_checked_at", { ascending: false })
+    .limit(1);
+  const last = newest?.[0]?.last_checked_at;
+  if (last && Date.now() - new Date(last).getTime() < 24 * 3600 * 1000) {
+    console.log("── 렌즈라라: 24시간 내 동기화됨 — 스킵");
+    return;
+  }
+  console.log("── 렌즈라라 카탈로그 동기화 (추천 전용)");
+  const items = await fetchLenslalaOneDay(fetchHtml);
+  console.log(`원데이 ${items.length}개`);
+  for (const item of items) {
+    const { data } = await db.from("products").select("id").eq("url", item.url).maybeSingle();
+    if (!data) {
+      await db.from("products").insert({
+        site: "lenslala", name: item.name, url: item.url,
+        image_url: item.image, tracking: false, last_checked_at: new Date().toISOString(),
+      });
+    } else {
+      await db.from("products").update({ last_checked_at: new Date().toISOString() }).eq("id", data.id);
+    }
+  }
+}
+
+// RAG 색인: 임베딩 없는 상품을 OpenAI로 일괄 색인
+async function indexEmbeddings() {
+  const OPENAI_KEY = process.env.OPENAI_API_KEY;
+  if (!OPENAI_KEY) {
+    console.log("── 임베딩: OPENAI_API_KEY 미설정 — 스킵");
+    return;
+  }
+  const { data: products } = await db.from("products").select("id,site,name,color_desc");
+  const { data: indexed } = await db.from("product_embeddings").select("product_id");
+  const done = new Set((indexed ?? []).map((r) => r.product_id));
+  const todo = (products ?? []).filter((p) => !done.has(p.id));
+  if (!todo.length) return;
+  console.log(`── 임베딩 색인: ${todo.length}개`);
+  const siteLabel = { lenssis: "렌시스", lenbling: "렌블링", lenslala: "렌즈라라", other: "기타" };
+  for (let i = 0; i < todo.length; i += 100) {
+    const batch = todo.slice(i, i + 100);
+    const inputs = batch.map((p) =>
+      `${p.name} — ${siteLabel[p.site] ?? p.site} 원데이 컬러렌즈` +
+      (p.color_desc ? ` | ${String(p.color_desc).slice(0, 300)}` : "")
+    );
+    const res = await fetch("https://api.openai.com/v1/embeddings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${OPENAI_KEY}` },
+      body: JSON.stringify({ model: "text-embedding-3-small", input: inputs }),
+    });
+    if (!res.ok) {
+      console.warn(`임베딩 API ${res.status}: ${(await res.text()).slice(0, 200)}`);
+      return;
+    }
+    const json = await res.json();
+    const rows = batch.map((p, j) => ({
+      product_id: p.id, content: inputs[j], embedding: json.data[j].embedding,
+    }));
+    const { error } = await db.from("product_embeddings").insert(rows);
+    if (error) console.warn(`색인 저장 실패: ${error.message}`);
+    else console.log(`  ${i + rows.length}/${todo.length}`);
+  }
+}
+
 const t0 = Date.now();
 await runLenssis();
 await runLenbling();
+await runLenslala();
+await indexEmbeddings();
 const { count } = await db
   .from("products")
   .select("*", { count: "exact", head: true });

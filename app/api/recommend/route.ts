@@ -1,216 +1,174 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-import {
-  buildFallbackReason,
-  buildFallbackSummary,
-  extractProfileFromText,
-  LensProfile,
-  mergeProfile,
-  parseJsonObject,
-  rankProducts,
-} from "@/lib/recommendation";
-import { Product, SUPABASE_ANON_KEY, SUPABASE_URL } from "@/lib/supabase";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
-interface RecommendRequest {
-  query?: string;
-  imageDataUrl?: string | null;
+const SUPABASE_URL =
+  process.env.NEXT_PUBLIC_SUPABASE_URL ?? "https://eoncsbfsejamcjwhzdwz.supabase.co";
+const ANON_KEY =
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??
+  "sb_publishable_OA40E8QSEUX1XCtfnMRLHg_leduCpnp";
+
+// 3중 폴백: 용도별 저가 모델 체인 ($4.93 예산 운용)
+const CHAT_MODELS = ["gpt-5-mini", "gpt-4.1-mini", "gpt-4o-mini"];
+
+async function openaiChat(key: string, messages: unknown[], jsonSchema?: object) {
+  let lastErr = "";
+  for (const model of CHAT_MODELS) {
+    try {
+      const res = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+        body: JSON.stringify({
+          model,
+          messages,
+          ...(jsonSchema
+            ? { response_format: { type: "json_schema", json_schema: { name: "out", strict: true, schema: jsonSchema } } }
+            : {}),
+        }),
+        signal: AbortSignal.timeout(45000),
+      });
+      if (!res.ok) { lastErr = `${model}: ${res.status} ${(await res.text()).slice(0, 150)}`; continue; }
+      const json = await res.json();
+      const content = json.choices?.[0]?.message?.content;
+      if (!content) { lastErr = `${model}: empty`; continue; }
+      return { content, model };
+    } catch (e) { lastErr = `${model}: ${(e as Error).message}`; }
+  }
+  throw new Error(`모든 모델 실패 — ${lastErr}`);
 }
 
-interface OpenAIRecommendation {
-  productId: string;
-  reason: string;
-}
-
-function getResponseText(payload: unknown): string {
-  if (!payload || typeof payload !== "object") return "";
-
-  const response = payload as {
-    output_text?: string;
-    output?: Array<{ content?: Array<{ text?: string }> }>;
-  };
-
-  if (typeof response.output_text === "string") return response.output_text;
-
-  return (
-    response.output
-      ?.flatMap((item) => item.content ?? [])
-      .map((content) => content.text ?? "")
-      .join("\n") ?? ""
-  );
-}
-
-function createServerSupabase() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? SUPABASE_URL;
-  const key =
-    process.env.SUPABASE_SERVICE_ROLE_KEY ??
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??
-    SUPABASE_ANON_KEY;
-
-  return createClient(url, key, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-}
-
-async function loadProducts() {
-  const supabase = createServerSupabase();
-  const { data, error } = await supabase.from("products").select("*").in("site", [
-    "lenssis",
-    "lenbling",
-    "lenslala",
-  ]);
-
-  if (error) throw new Error(error.message);
-
-  return ((data as Product[]) ?? []).filter(
-    (product) => product.site === "lenslala" || product.tracking
-  );
-}
-
-async function callOpenAI(prompt: string, imageDataUrl?: string | null) {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) return null;
-
-  const response = await fetch("https://api.openai.com/v1/responses", {
+async function embed(key: string, text: string): Promise<number[]> {
+  const res = await fetch("https://api.openai.com/v1/embeddings", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: process.env.OPENAI_MODEL ?? "gpt-4.1-mini",
-      input: [
-        {
-          role: "user",
-          content: [
-            { type: "input_text", text: prompt },
-            ...(imageDataUrl
-              ? [{ type: "input_image", image_url: imageDataUrl, detail: "low" as const }]
-              : []),
-          ],
-        },
-      ],
-    }),
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+    body: JSON.stringify({ model: "text-embedding-3-small", input: text }),
+    signal: AbortSignal.timeout(30000),
   });
+  if (!res.ok) throw new Error(`임베딩 실패 ${res.status}`);
+  return (await res.json()).data[0].embedding;
+}
 
-  if (!response.ok) {
-    throw new Error(`OpenAI request failed with ${response.status}`);
+const FEATURE_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["iris_color", "skin_tone", "mood", "recommend_tones", "avoid_tones"],
+  properties: {
+    iris_color: { type: "string" },
+    skin_tone: { type: "string" },
+    mood: { type: "string" },
+    recommend_tones: { type: "array", items: { type: "string" } },
+    avoid_tones: { type: "array", items: { type: "string" } },
+  },
+};
+
+const PICK_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["message", "picks"],
+  properties: {
+    message: { type: "string" },
+    picks: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["product_id", "reason"],
+        properties: { product_id: { type: "string" }, reason: { type: "string" } },
+      },
+    },
+  },
+};
+
+export async function POST(req: NextRequest) {
+  const key = process.env.OPENAI_API_KEY;
+  if (!key) {
+    return NextResponse.json(
+      { error: "OPENAI_API_KEY가 설정되지 않았어요. Vercel 환경변수에 추가해 주세요." },
+      { status: 503 }
+    );
+  }
+  const { text, imageBase64, imageMime } = await req.json();
+  if (!text && !imageBase64) {
+    return NextResponse.json({ error: "사진이나 텍스트를 입력해 주세요." }, { status: 400 });
   }
 
-  return getResponseText((await response.json()) as unknown);
-}
-
-async function analyzeProfile(query: string, imageDataUrl?: string | null) {
-  const textProfile = extractProfileFromText(query);
-  if (!imageDataUrl && !process.env.OPENAI_API_KEY) return { profile: textProfile, mode: "fallback" };
-
-  if (!process.env.OPENAI_API_KEY) {
-    return {
-      profile: textProfile,
-      mode: "fallback",
-      note: "OPENAI_API_KEY가 없어 텍스트 키워드 중심으로 추천했어요.",
-    };
-  }
-
-  const prompt = [
-    "컬러 렌즈 추천용 프로필 분석기입니다.",
-    "입력된 텍스트와 사진을 보고 아래 JSON만 반환하세요.",
-    '{"irisColor":"","skinTone":"","mood":"","suitableColors":[],"avoidColors":[],"sizePreference":"","finishPreference":"","notes":[]}',
-    "설명은 넣지 말고 JSON만 출력하세요.",
-    `텍스트 요청: ${query || "없음"}`,
-  ].join("\n");
-
-  const responseText = await callOpenAI(prompt, imageDataUrl);
-  const parsed = parseJsonObject<Partial<LensProfile>>(responseText ?? "");
-
-  return {
-    profile: mergeProfile(textProfile, parsed),
-    mode: parsed ? "openai" : "fallback",
-    note: parsed ? undefined : "사진 분석 응답을 해석하지 못해 텍스트 기반 추천으로 이어갔어요.",
-  };
-}
-
-async function refineRecommendations(
-  query: string,
-  profile: LensProfile,
-  candidates: ReturnType<typeof rankProducts>
-) {
-  if (!process.env.OPENAI_API_KEY || candidates.length === 0) return null;
-
-  const prompt = [
-    "너는 컬러 렌즈 큐레이터다.",
-    "주어진 후보 목록 안에서만 최대 4개를 골라 JSON만 반환해라.",
-    '{"summary":"","recommendations":[{"productId":"","reason":""}]}',
-    `사용자 요청: ${query || "없음"}`,
-    `프로필: ${JSON.stringify(profile)}`,
-    "후보 목록:",
-    ...candidates.map(({ product, matchedTerms }, index) =>
-      `${index + 1}. ${JSON.stringify({
-        productId: product.id,
-        name: product.name,
-        site: product.site,
-        inStock: product.in_stock,
-        colorDesc: product.color_desc,
-        matchedTerms,
-      })}`
-    ),
-  ].join("\n");
-
-  const responseText = await callOpenAI(prompt, null);
-  return parseJsonObject<{
-    summary?: string;
-    recommendations?: OpenAIRecommendation[];
-  }>(responseText ?? "");
-}
-
-export async function POST(request: NextRequest) {
   try {
-    const body = (await request.json()) as RecommendRequest;
-    const query = body.query?.trim() ?? "";
-    const imageDataUrl = body.imageDataUrl ?? null;
-
-    if (!query && !imageDataUrl) {
-      return NextResponse.json(
-        { error: "텍스트 설명이나 사진 중 하나는 필요해요." },
-        { status: 400 }
+    // ① 사진 → 특징 추출 (structured output, 사진은 저장하지 않음)
+    let features: Record<string, unknown> | null = null;
+    if (imageBase64) {
+      const { content } = await openaiChat(
+        key,
+        [
+          {
+            role: "system",
+            content:
+              "당신은 컬러렌즈 스타일리스트입니다. 사진 속 인물의 홍채색, 피부톤(웜/쿨), 인상을 분석하고 어울리는/피할 렌즈 색 계열을 제시하세요. 한국어로 답하세요.",
+          },
+          {
+            role: "user",
+            content: [
+              { type: "image_url", image_url: { url: `data:${imageMime ?? "image/jpeg"};base64,${imageBase64}` } },
+              { type: "text", text: "이 사람에게 어울리는 컬러렌즈 특징을 분석해줘." },
+            ],
+          },
+        ],
+        FEATURE_SCHEMA
       );
+      features = JSON.parse(content);
     }
 
-    const products = await loadProducts();
-    const profileResult = await analyzeProfile(query, imageDataUrl);
-    const ranked = rankProducts(products, query, profileResult.profile, 8);
-    const aiResult = await refineRecommendations(query, profileResult.profile, ranked);
+    // ② 검색 문장 → 임베딩 → pgvector 유사도 검색
+    const query = features
+      ? `${features.recommend_tones instanceof Array ? (features.recommend_tones as string[]).join(", ") : ""} 계열의 자연스러운 원데이 컬러렌즈. ${features.mood ?? ""} 분위기, ${features.skin_tone ?? ""} 피부톤용. ${text ?? ""}`
+      : String(text);
+    const queryEmbedding = await embed(key, query);
 
-    const chosen = (aiResult?.recommendations ?? [])
-      .map((item) => {
-        const found = ranked.find(({ product }) => product.id === item.productId);
-        if (!found) return null;
-        return {
-          ...found.product,
-          reason: item.reason,
-          matchedTerms: found.matchedTerms,
-        };
-      })
-      .filter((value): value is Product & { reason: string; matchedTerms: string[] } => Boolean(value));
-
-    const fallback = ranked.slice(0, 4).map(({ product, matchedTerms }) => ({
-      ...product,
-      reason: buildFallbackReason(product, profileResult.profile, matchedTerms),
-      matchedTerms,
-    }));
-
-    return NextResponse.json({
-      mode: aiResult?.recommendations?.length ? "openai" : profileResult.mode,
-      note: profileResult.note,
-      analysis: profileResult.profile,
-      summary:
-        aiResult?.summary ||
-        buildFallbackSummary(profileResult.profile, ranked),
-      recommendations: chosen.length ? chosen : fallback,
+    const rpcRes = await fetch(`${SUPABASE_URL}/rest/v1/rpc/match_products`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", apikey: ANON_KEY, Authorization: `Bearer ${ANON_KEY}` },
+      body: JSON.stringify({ query_embedding: queryEmbedding, match_count: 12 }),
     });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "추천을 준비하지 못했어요.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    if (!rpcRes.ok) throw new Error(`검색 실패 ${rpcRes.status}: ${(await rpcRes.text()).slice(0, 150)}`);
+    type Match = { product_id: string; name: string; site: string; url: string; buy_url: string | null; image_url: string | null; in_stock: boolean | null; similarity: number };
+    const matches: Match[] = await rpcRes.json();
+    if (!matches.length) {
+      return NextResponse.json({ error: "추천 후보가 없어요. 임베딩 색인이 아직 안 됐을 수 있어요 (크론 실행 후 다시 시도)." }, { status: 404 });
+    }
+
+    // ③ 검색 결과만 근거로 추천 생성 (재고 있는 상품 우선)
+    const candidates = [...matches].sort(
+      (a, b) => Number(b.in_stock !== false) - Number(a.in_stock !== false) || b.similarity - a.similarity
+    );
+    const listText = candidates
+      .map((m, i) => `${i + 1}. [${m.product_id}] ${m.name} (${m.site}, ${m.in_stock === false ? "품절" : m.in_stock ? "재고있음" : "재고정보없음"})`)
+      .join("\n");
+    const { content, model } = await openaiChat(
+      key,
+      [
+        {
+          role: "system",
+          content:
+            "컬러렌즈 추천 도우미. 아래 후보 목록에 있는 상품만으로 3~5개를 추천하고, 각 상품마다 사용자 특징과 연결한 한 줄 이유를 써라. 목록에 없는 상품을 지어내지 마라. 재고있음 상품을 우선하라. 한국어.",
+        },
+        {
+          role: "user",
+          content: `사용자 특징: ${features ? JSON.stringify(features) : "없음"}\n요청: ${text ?? "사진 기반 추천"}\n\n후보 목록:\n${listText}`,
+        },
+      ],
+      PICK_SCHEMA
+    );
+    const parsed = JSON.parse(content) as { message: string; picks: { product_id: string; reason: string }[] };
+    const byId = new Map(candidates.map((m) => [m.product_id, m]));
+    const items = parsed.picks
+      .map((p) => {
+        const m = byId.get(p.product_id);
+        return m ? { ...m, reason: p.reason } : null;
+      })
+      .filter(Boolean);
+
+    return NextResponse.json({ message: parsed.message, features, items, model });
+  } catch (e) {
+    return NextResponse.json({ error: (e as Error).message }, { status: 502 });
   }
 }

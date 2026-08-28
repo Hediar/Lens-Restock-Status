@@ -1,190 +1,102 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { buildStockInsights } from "@/lib/stock-insights";
-import { Product, StockCheck, supabase, timeAgo } from "@/lib/supabase";
+import { useEffect, useState } from "react";
+import { supabase, SITE_LABEL, Site } from "@/lib/supabase";
 
-function formatHours(value: number | null) {
-  if (value === null) return "기록 대기";
-  if (value < 24) return `${value.toFixed(1)}시간`;
-  return `${(value / 24).toFixed(1)}일`;
-}
+interface CheckRow { product_id: string; in_stock: boolean; changed_at: string; }
+interface ProdRow { id: string; name: string; site: Site; }
+
+const DAYS = ["일", "월", "화", "수", "목", "금", "토"];
+const BUCKETS = ["0-4", "4-8", "8-12", "12-16", "16-20", "20-24"];
 
 export default function StatsPage() {
-  const [products, setProducts] = useState<Product[] | null>(null);
-  const [checks, setChecks] = useState<StockCheck[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const load = useCallback(async () => {
-    const [{ data: productData, error: productError }, { data: checkData, error: checkError }] =
-      await Promise.all([
-        supabase.from("products").select("*").eq("tracking", true).order("name"),
-        supabase.from("stock_checks").select("*").order("changed_at", { ascending: false }),
-      ]);
-
-    if (productError || checkError) {
-      setError(productError?.message ?? checkError?.message ?? "통계를 불러오지 못했어요.");
-      return;
-    }
-
-    setError(null);
-    setProducts((productData as Product[]) ?? []);
-    setChecks((checkData as StockCheck[]) ?? []);
-  }, []);
+  const [checks, setChecks] = useState<CheckRow[] | null>(null);
+  const [prods, setProds] = useState<Map<string, ProdRow>>(new Map());
 
   useEffect(() => {
-    load();
-  }, [load]);
+    (async () => {
+      const [c, p] = await Promise.all([
+        supabase.from("stock_checks").select("product_id,in_stock,changed_at").order("changed_at").limit(3000),
+        supabase.from("products").select("id,name,site"),
+      ]);
+      setProds(new Map(((p.data ?? []) as ProdRow[]).map((r) => [r.id, r])));
+      setChecks((c.data as CheckRow[]) ?? []);
+    })();
+  }, []);
 
-  const insights =
-    products && checks
-      ? buildStockInsights(
-          products,
-          checks.filter((check) => products.some((product) => product.id === check.product_id))
-        )
-      : null;
-  const maxSelloutCount = Math.max(...(insights?.selloutRanking.map((item) => item.count) ?? [0]));
-  const maxHeat = Math.max(
-    ...(insights?.heatmap.flatMap((row) => row.cells.map((cell) => cell.count)) ?? [0])
-  );
+  if (checks === null) return <main className="loading">불러오는 중…</main>;
+
+  // 품절 빈도 랭킹 (품절 전환 횟수)
+  const outCount = new Map<string, number>();
+  for (const c of checks) if (!c.in_stock) outCount.set(c.product_id, (outCount.get(c.product_id) ?? 0) + 1);
+  const ranking = [...outCount.entries()]
+    .map(([id, n]) => ({ p: prods.get(id), n }))
+    .filter((r) => r.p)
+    .sort((a, b) => b.n - a.n)
+    .slice(0, 8);
+  const maxN = ranking[0]?.n ?? 1;
+
+  // 평균 품절 지속시간 (품절→재입고 쌍)
+  const lastOut = new Map<string, number>();
+  const durations: number[] = [];
+  let restockThisWeek = 0;
+  const weekAgo = Date.now() - 7 * 86400_000;
+  const heat = Array.from({ length: 7 }, () => Array(6).fill(0));
+  for (const c of checks) {
+    const t = new Date(c.changed_at).getTime();
+    if (!c.in_stock) lastOut.set(c.product_id, t);
+    else {
+      const started = lastOut.get(c.product_id);
+      if (started) { durations.push(t - started); lastOut.delete(c.product_id); }
+      if (t >= weekAgo) restockThisWeek++;
+      const d = new Date(c.changed_at);
+      heat[d.getDay()][Math.floor(d.getHours() / 4)]++;
+    }
+  }
+  const avgDays = durations.length
+    ? (durations.reduce((a, b) => a + b, 0) / durations.length / 86400_000).toFixed(1)
+    : null;
+  const heatMax = Math.max(1, ...heat.flat());
 
   return (
     <main>
-      <div className="header">
-        <h1>품절 통계</h1>
-        <span className="checked-at">체크: {timeAgo(insights?.lastCheckedAt ?? null)}</span>
+      <div className="header"><h1>품절 통계</h1></div>
+      <p className="sub">품절↔재입고 전환 이력이 쌓일수록 정확해져요.</p>
+
+      <div className="stat-tiles">
+        <div className="tile"><div className="num">{avgDays ?? "—"}{avgDays && <small>일</small>}</div><div className="label">평균 품절 지속</div></div>
+        <div className="tile"><div className="num">{restockThisWeek}<small>건</small></div><div className="label">최근 7일 재입고</div></div>
+        <div className="tile"><div className="num">{checks.length}<small>건</small></div><div className="label">누적 전환 기록</div></div>
       </div>
-      <p className="sub">최근 전환 이력으로 품절 패턴과 재입고 타이밍을 모아봤어요.</p>
 
-      {error && <div className="empty">불러오기 실패: {error}</div>}
-      {!error && (!products || !checks) && <div className="loading">통계를 계산하는 중…</div>}
-
-      {!error && insights && (
-        <div className="stats-stack">
-          <section className="metric-grid">
-            <article className="metric-card">
-              <span className="metric-label">추적 상품</span>
-              <strong>{insights.trackedCount}개</strong>
-              <p>현재 보고 있는 전체 후보예요.</p>
-            </article>
-            <article className="metric-card">
-              <span className="metric-label">현재 품절</span>
-              <strong>{insights.currentlyOutCount}개</strong>
-              <p>지금 바로 기다리는 상품 수예요.</p>
-            </article>
-            <article className="metric-card">
-              <span className="metric-label">평균 품절 기간</span>
-              <strong>{formatHours(insights.averageSelloutHours)}</strong>
-              <p>품절 후 다시 재고로 돌아온 기록만 평균냈어요.</p>
-            </article>
-            <article className="metric-card">
-              <span className="metric-label">최근 7일 재입고</span>
-              <strong>{insights.weeklyRestocks}회</strong>
-              <p>최근 일주일 안에 확인된 재입고 전환이에요.</p>
-            </article>
-          </section>
-
-          {insights.longestOut && (
-            <section className="panel">
-              <div className="panel-head">
-                <h2>가장 오래 품절 중</h2>
-              </div>
-              <p className="highlight-line">
-                <strong>{insights.longestOut.name}</strong>
-                <span>
-                  {insights.longestOut.siteLabel} · {formatHours(insights.longestOut.hours)}
-                </span>
-              </p>
-            </section>
-          )}
-
-          <section className="panel">
-            <div className="panel-head">
-              <h2>품절 잦은 순위</h2>
-              <span>전환 횟수 기준</span>
+      <h2 className="sec">자주 품절되는 상품</h2>
+      {ranking.length === 0 ? (
+        <div className="empty">아직 품절 전환 기록이 없어요.</div>
+      ) : (
+        <div className="rank">
+          {ranking.map((r) => (
+            <div className="rrow" key={r.p!.id}>
+              <span className="rname">{r.p!.name}</span>
+              <div className="rbar"><div style={{ width: `${(r.n / maxN) * 100}%` }} /></div>
+              <span className="rn">{r.n}회</span>
             </div>
-            {insights.selloutRanking.length === 0 ? (
-              <div className="empty compact">아직 품절 전환 기록이 없어요.</div>
-            ) : (
-              <div className="ranking-list">
-                {insights.selloutRanking.map((item) => (
-                  <div className="ranking-row" key={item.productId}>
-                    <div className="ranking-copy">
-                      <strong>{item.name}</strong>
-                      <span>
-                        {item.siteLabel} · {item.inStock === false ? "현재 품절" : "현재 확인 가능"}
-                      </span>
-                    </div>
-                    <div className="ranking-bar">
-                      <div
-                        className="ranking-fill"
-                        style={{
-                          width: `${maxSelloutCount === 0 ? 0 : (item.count / maxSelloutCount) * 100}%`,
-                        }}
-                      />
-                    </div>
-                    <strong className="ranking-count">{item.count}</strong>
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
-
-          <section className="panel">
-            <div className="panel-head">
-              <h2>재입고 요일/시간대</h2>
-              <span>최근 7일 기준</span>
-            </div>
-            <div className="heatmap-wrap">
-              <div className="heatmap-axis">
-                <span />
-                {insights.heatmap[0]?.cells.map((cell) => (
-                  <span key={cell.bucketLabel}>{cell.bucketLabel}</span>
-                ))}
-              </div>
-              {insights.heatmap.map((row) => (
-                <div className="heatmap-row" key={row.dayLabel}>
-                  <span className="heatmap-day">{row.dayLabel}</span>
-                  {row.cells.map((cell) => (
-                    <div
-                      key={`${row.dayLabel}-${cell.bucketLabel}`}
-                      className="heatmap-cell"
-                      style={{
-                        opacity:
-                          cell.count === 0 || maxHeat === 0 ? 0.15 : 0.25 + cell.count / maxHeat,
-                      }}
-                      title={`${row.dayLabel} ${cell.bucketLabel} · ${cell.count}회`}
-                    >
-                      {cell.count > 0 ? cell.count : ""}
-                    </div>
-                  ))}
-                </div>
-              ))}
-            </div>
-          </section>
-
-          <section className="panel">
-            <div className="panel-head">
-              <h2>최근 재입고</h2>
-            </div>
-            {insights.recentRestocks.length === 0 ? (
-              <div className="empty compact">아직 재입고 기록이 없어요.</div>
-            ) : (
-              <div className="event-list">
-                {insights.recentRestocks.map((event) => (
-                  <div className="event-row" key={event.id}>
-                    <div>
-                      <strong>{event.name}</strong>
-                      <span>{event.siteLabel}</span>
-                    </div>
-                    <time>{new Date(event.changedAt).toLocaleString("ko-KR")}</time>
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
+          ))}
         </div>
       )}
+
+      <h2 className="sec">재입고 요일 · 시간대</h2>
+      <div className="heat">
+        <div className="hhead"><span /> {BUCKETS.map((b) => <span key={b}>{b}</span>)}</div>
+        {heat.map((row, d) => (
+          <div className="hrow2" key={d}>
+            <span className="hday">{DAYS[d]}</span>
+            {row.map((v, i) => (
+              <span key={i} className="hcell" style={{ opacity: v ? 0.25 + 0.75 * (v / heatMax) : 1, background: v ? "var(--primary)" : "var(--border)" }} title={`${v}건`} />
+            ))}
+          </div>
+        ))}
+      </div>
+      <p className="sub" style={{ marginTop: 8 }}>진한 칸일수록 재입고가 잦은 시간대예요.</p>
     </main>
   );
 }

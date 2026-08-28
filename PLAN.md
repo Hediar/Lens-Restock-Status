@@ -152,8 +152,8 @@ push_subscriptions
       전환 기록, 사이트맵 자동 등록
 - [x] **4. 웹 푸시 + PWA** — VAPID(GitHub Secrets), Service Worker, manifest,
       ⭐ 상품 재입고 전환 시 발송
-- [ ] **5. 통계** — 품절 빈도 랭킹, 지속시간, 재입고 시간대 패턴
-- [ ] **6. RAG 렌즈 추천 챗봇** — pgvector+OpenAI 임베딩 색인, 사진 특징 추출
+- [x] **5. 통계** — 품절 빈도 랭킹, 지속시간, 재입고 시간대 패턴
+- [x] **6. RAG 렌즈 추천 챗봇** — pgvector+OpenAI 임베딩 색인, 사진 특징 추출
       (OpenAI 비전, structured output), hybrid retrieval(벡터+재고 필터),
       근거 기반 추천 UI. 사진 미저장.
       **추천 풀 = DB(products)에 현재 등록된 렌블링+렌시스+렌즈라라 상품 전체.**

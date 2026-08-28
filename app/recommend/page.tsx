@@ -1,147 +1,79 @@
 "use client";
 
-import { ChangeEvent, FormEvent, useEffect, useState } from "react";
-import { LensProfile } from "@/lib/recommendation";
-import { Product, SITE_LABEL, supabase } from "@/lib/supabase";
+import { useRef, useState } from "react";
+import { SITE_LABEL, Site, supabase } from "@/lib/supabase";
 
-interface RecommendationResult extends Product {
+interface RecItem {
+  product_id: string;
+  name: string;
+  site: Site;
+  url: string;
+  buy_url: string | null;
+  image_url: string | null;
+  in_stock: boolean | null;
   reason: string;
-  matchedTerms?: string[];
 }
-
-interface RecommendResponse {
-  mode: "openai" | "fallback";
-  note?: string;
-  summary: string;
-  analysis: LensProfile;
-  recommendations: RecommendationResult[];
-}
-
-const LOADING_STEPS = ["사진/텍스트 분석 중", "어울리는 상품 찾는 중", "추천 정리 중"];
-
-async function resizeImage(file: File) {
-  const src = await new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "");
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-
-  const image = await new Promise<HTMLImageElement>((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = reject;
-    img.src = src;
-  });
-
-  const maxSide = 960;
-  const scale = Math.min(1, maxSide / Math.max(image.width, image.height));
-  const canvas = document.createElement("canvas");
-  canvas.width = Math.round(image.width * scale);
-  canvas.height = Math.round(image.height * scale);
-
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return src;
-
-  ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
-  return canvas.toDataURL("image/jpeg", 0.82);
-}
-
-function chips(profile: LensProfile) {
-  return [
-    { label: "홍채", value: profile.irisColor },
-    { label: "톤", value: profile.skinTone },
-    { label: "무드", value: profile.mood },
-    { label: "직경", value: profile.sizePreference },
-  ].filter((item) => item.value && item.value !== "미분석");
+interface RecResult {
+  message: string;
+  features: {
+    iris_color?: string;
+    skin_tone?: string;
+    mood?: string;
+    recommend_tones?: string[];
+  } | null;
+  items: RecItem[];
 }
 
 export default function RecommendPage() {
-  const [query, setQuery] = useState("");
-  const [imageDataUrl, setImageDataUrl] = useState<string | null>(null);
-  const [imageName, setImageName] = useState<string | null>(null);
-  const [result, setResult] = useState<RecommendResponse | null>(null);
+  const [text, setText] = useState("");
+  const [image, setImage] = useState<{ b64: string; mime: string; preview: string } | null>(null);
+  const [stage, setStage] = useState<string | null>(null);
+  const [result, setResult] = useState<RecResult | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [loadingIndex, setLoadingIndex] = useState(0);
+  const [starredIds, setStarredIds] = useState<Set<string>>(new Set());
+  const fileRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    if (!isLoading) return;
-    const timer = window.setInterval(() => {
-      setLoadingIndex((prev) => (prev + 1) % LOADING_STEPS.length);
-    }, 900);
-    return () => window.clearInterval(timer);
-  }, [isLoading]);
-
-  async function handleImageChange(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    setError(null);
-    setImageName(file.name);
-    setImageDataUrl(await resizeImage(file));
+  function pickImage(f: File) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const url = String(reader.result);
+      setImage({ b64: url.split(",")[1], mime: f.type || "image/jpeg", preview: url });
+    };
+    reader.readAsDataURL(f);
   }
 
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    if (!query.trim() && !imageDataUrl) {
-      setError("사진이나 텍스트 설명 중 하나는 입력해 주세요.");
-      return;
-    }
-
+  async function submit() {
+    if (!text.trim() && !image) return;
     setError(null);
     setResult(null);
-    setIsLoading(true);
-    setLoadingIndex(0);
-
+    setStage(image ? "사진 분석 중…" : "상품 검색 중…");
+    const t = setTimeout(() => setStage("어울리는 렌즈 찾는 중…"), 4000);
+    const t2 = setTimeout(() => setStage("추천 정리 중…"), 9000);
     try {
-      const response = await fetch("/api/recommend", {
+      const res = await fetch("/api/recommend", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query, imageDataUrl }),
+        body: JSON.stringify({
+          text: text.trim() || undefined,
+          imageBase64: image?.b64,
+          imageMime: image?.mime,
+        }),
       });
-      const payload = (await response.json()) as RecommendResponse & { error?: string };
-      if (!response.ok) throw new Error(payload.error ?? "추천을 불러오지 못했어요.");
-      setResult(payload);
-    } catch (submitError) {
-      setError(
-        submitError instanceof Error ? submitError.message : "추천을 준비하지 못했어요."
-      );
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? `오류 (${res.status})`);
+      setResult(json);
+    } catch (e) {
+      setError((e as Error).message);
     } finally {
-      setIsLoading(false);
+      clearTimeout(t);
+      clearTimeout(t2);
+      setStage(null);
     }
   }
 
-  async function toggleStar(product: RecommendationResult) {
-    setResult((prev) =>
-      prev
-        ? {
-            ...prev,
-            recommendations: prev.recommendations.map((item) =>
-              item.id === product.id ? { ...item, starred: !item.starred } : item
-            ),
-          }
-        : null
-    );
-
-    const { error: updateError } = await supabase
-      .from("products")
-      .update({ starred: !product.starred })
-      .eq("id", product.id);
-
-    if (updateError) {
-      setError(updateError.message);
-      setResult((prev) =>
-        prev
-          ? {
-              ...prev,
-              recommendations: prev.recommendations.map((item) =>
-                item.id === product.id ? { ...item, starred: product.starred } : item
-              ),
-            }
-          : null
-      );
-    }
+  async function star(item: RecItem) {
+    setStarredIds((s) => new Set(s).add(item.product_id));
+    await supabase.from("products").update({ starred: true }).eq("id", item.product_id);
   }
 
   return (
@@ -149,140 +81,107 @@ export default function RecommendPage() {
       <div className="header">
         <h1>렌즈 추천</h1>
       </div>
-      <p className="sub">사진은 저장하지 않고, 지금 DB에 있는 렌즈 후보 안에서만 골라드려요.</p>
+      <p className="sub">사진이나 취향을 알려주면 등록된 상품 중에서 골라드려요.</p>
 
-      <form className="recommend-form" onSubmit={submit}>
-        <label className="recommend-label" htmlFor="recommend-query">
-          원하는 느낌
-        </label>
-        <textarea
-          id="recommend-query"
-          className="recommend-input"
-          rows={4}
-          placeholder="예: 봄웜이고 자연스러운 브라운 원데이 찾고 싶어요. 너무 튀는 건 싫어요."
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-        />
-
-        <div className="upload-card">
-          <div>
-            <strong>사진 업로드</strong>
-            <p>셀카 한 장으로 톤과 무드를 참고해요. 저장되지는 않아요.</p>
-          </div>
-          <label className="btn primary upload-btn">
-            사진 선택
-            <input type="file" accept="image/*" hidden onChange={handleImageChange} />
-          </label>
-        </div>
-
-        {imageName && (
-          <div className="preview-card">
-            {imageDataUrl && <img src={imageDataUrl} alt="업로드 미리보기" className="preview-image" />}
-            <div className="preview-copy">
-              <strong>{imageName}</strong>
-              <button
-                type="button"
-                className="remove-link"
-                onClick={() => {
-                  setImageDataUrl(null);
-                  setImageName(null);
-                }}
-              >
-                사진 제거
-              </button>
-            </div>
-          </div>
+      <div
+        className="photo-zone"
+        onClick={() => fileRef.current?.click()}
+        style={image ? { padding: 8 } : undefined}
+      >
+        {image ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={image.preview} alt="업로드한 사진" style={{ maxHeight: 160, borderRadius: 10 }} />
+        ) : (
+          <>
+            <div style={{ fontSize: "1.5rem" }}>📷</div>
+            사진 올리기
+            <small>서버에 저장되지 않아요</small>
+          </>
         )}
-
-        <button className="btn primary wide" disabled={isLoading} type="submit">
-          {isLoading ? LOADING_STEPS[loadingIndex] : "추천 받기"}
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/*"
+          hidden
+          onChange={(e) => e.target.files?.[0] && pickImage(e.target.files[0])}
+        />
+      </div>
+      {image && (
+        <button className="btn" style={{ marginBottom: 10 }} onClick={() => setImage(null)}>
+          사진 지우기
         </button>
-      </form>
-
-      {error && <div className="empty">{error}</div>}
-
-      {isLoading && (
-        <div className="panel loading-panel">
-          <strong>{LOADING_STEPS[loadingIndex]}</strong>
-          <p>분석 결과와 재고 상태를 함께 정리하고 있어요.</p>
-        </div>
       )}
 
-      {result && (
-        <div className="stats-stack">
-          <section className="panel">
-            <div className="panel-head">
-              <h2>분석 결과</h2>
-              <span>{result.mode === "openai" ? "사진+텍스트 분석" : "텍스트 중심 추천"}</span>
-            </div>
-            <div className="analysis-chips">
-              {chips(result.analysis).map((item) => (
-                <span className="analysis-chip" key={item.label}>
-                  {item.label} · {item.value}
-                </span>
-              ))}
-              {result.analysis.suitableColors.map((color) => (
-                <span className="analysis-chip soft" key={color}>
-                  추천 컬러 · {color}
-                </span>
-              ))}
-            </div>
-            <p className="summary-text">{result.summary}</p>
-            {result.note && <p className="server-note">{result.note}</p>}
-          </section>
+      <div className="askrow">
+        <input
+          className="ask"
+          placeholder="예: 차분한 그레이 계열 추천해줘"
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && submit()}
+        />
+        <button className="btn primary" onClick={submit} disabled={stage !== null}>
+          {stage ? "…" : "추천"}
+        </button>
+      </div>
 
-          <section className="panel">
-            <div className="panel-head">
-              <h2>추천 후보</h2>
-            </div>
-            <div className="recommend-list">
-              {result.recommendations.map((product) => (
-                <article className="recommend-card" key={product.id}>
-                  <div className="recommend-top">
-                    {product.image_url ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={product.image_url} alt="" className="thumb large" />
-                    ) : (
-                      <div className="thumb large" />
-                    )}
-                    <div className="recommend-copy">
-                      <strong>{product.name}</strong>
-                      <span>{SITE_LABEL[product.site]}</span>
-                    </div>
-                    <span
-                      className={`status ${
-                        product.in_stock === true
-                          ? "in"
-                          : product.in_stock === false
-                            ? "out"
-                            : "unknown"
-                      }`}
-                    >
-                      {product.in_stock === true
-                        ? "재고"
-                        : product.in_stock === false
-                          ? "품절"
-                          : "확인 전"}
-                    </span>
-                  </div>
-                  <p className="recommend-reason">{product.reason}</p>
-                  <div className="recommend-actions">
-                    <a className="btn" href={product.buy_url ?? product.url} target="_blank" rel="noreferrer">
-                      상품 보기
-                    </a>
-                    <button
-                      type="button"
-                      className={`btn ${product.starred ? "primary" : ""}`}
-                      onClick={() => toggleStar(product)}
-                    >
-                      {product.starred ? "⭐ 관심중" : "⭐ 관심 등록"}
-                    </button>
-                  </div>
-                </article>
+      {stage && <div className="loading">{stage}</div>}
+      {error && <div className="empty">{error}</div>}
+
+      {result && (
+        <>
+          {result.features && (
+            <div className="feat">
+              {result.features.iris_color && <span className="chip">홍채 {result.features.iris_color}</span>}
+              {result.features.skin_tone && <span className="chip">{result.features.skin_tone}</span>}
+              {result.features.mood && <span className="chip">{result.features.mood}</span>}
+              {result.features.recommend_tones?.map((tone) => (
+                <span className="chip active" key={tone}>
+                  {tone}
+                </span>
               ))}
             </div>
-          </section>
-        </div>
+          )}
+          <p className="recmsg">{result.message}</p>
+          {result.items.map((it) => (
+            <div className="pcard" key={it.product_id}>
+              <div className="row">
+                {it.image_url ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img className="thumb" src={it.image_url} alt="" />
+                ) : (
+                  <div className="thumb" />
+                )}
+                <div className="pinfo">
+                  <div className="pname">{it.name}</div>
+                  <div className="psite">{SITE_LABEL[it.site]}</div>
+                </div>
+                <span
+                  className={`status ${
+                    it.in_stock === true ? "in" : it.in_stock === false ? "out" : "unknown"
+                  }`}
+                >
+                  {it.in_stock === true ? "재고" : it.in_stock === false ? "품절" : "재고정보 없음"}
+                </span>
+              </div>
+              <p className="reason">{it.reason}</p>
+              <div className="actions" style={{ marginTop: 8, display: "flex", gap: 8 }}>
+                <a className="btn" href={it.buy_url ?? it.url} target="_blank" rel="noreferrer">
+                  상품 보기
+                </a>
+                {it.in_stock === false && (
+                  <button
+                    className="btn"
+                    disabled={starredIds.has(it.product_id)}
+                    onClick={() => star(it)}
+                  >
+                    {starredIds.has(it.product_id) ? "⭐ 알림 등록됨" : "⭐ 재입고 알림"}
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </>
       )}
     </main>
   );
