@@ -148,9 +148,9 @@ push_subscriptions
 - [x] **1. 기본 앱** — Next.js + Supabase, GitHub push, Vercel 자동 배포
 - [x] **2. 추적 모델 + 현황 대시보드** — 스키마 생성(기존 테이블 정리 포함),
       모바일 우선 현황 UI, ⭐ 관심 토글, 마지막 체크 시각
-- [ ] **3. 크론 체커** — GitHub Actions, 렌블링/렌시스 파서, 상품 설명 수집,
+- [x] **3. 크론 체커** — GitHub Actions, 렌블링/렌시스 파서, 상품 설명 수집,
       전환 기록, 사이트맵 자동 등록
-- [ ] **4. 웹 푸시 + PWA** — VAPID(GitHub Secrets), Service Worker, manifest,
+- [x] **4. 웹 푸시 + PWA** — VAPID(GitHub Secrets), Service Worker, manifest,
       ⭐ 상품 재입고 전환 시 발송
 - [ ] **5. 통계** — 품절 빈도 랭킹, 지속시간, 재입고 시간대 패턴
 - [ ] **6. RAG 렌즈 추천 챗봇** — pgvector+OpenAI 임베딩 색인, 사진 특징 추출
