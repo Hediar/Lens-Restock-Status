@@ -167,6 +167,8 @@ async function upsertProduct(site, { url, name, image = null, colorDesc = null }
 
 async function runLenssis() {
   console.log("── 렌시스 스윕");
+  // 구버전 크론이 남긴 lenssis.site 형식 행 정리 (현행은 lenssis-online.com)
+  await db.from("products").delete().eq("site", "lenssis").like("url", "https://lenssis.site%");
   const { products, cookie } = await fetchLenssisCatalog(fetchWithCookies);
   console.log(`원데이 카탈로그 ${products.length}개`);
   if (!products.length) return;
