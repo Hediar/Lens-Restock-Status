@@ -2,6 +2,22 @@
 // 사용 env: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
 import { createClient } from "@supabase/supabase-js";
 import webpush from "web-push";
+import { Agent, fetch as undiciFetch } from "undici";
+
+// 렌시스.com은 인증서 만료 → 해당 호스트 요청에만 검증 예외 적용
+// (내장 fetch와 npm undici Agent는 호환되지 않아 undici fetch를 함께 사용)
+const insecureAgent = new Agent({ connect: { rejectUnauthorized: false } });
+const needsInsecure = (url) => {
+  try {
+    return new URL(url).hostname === "xn--sm2bu7q1e.com";
+  } catch {
+    return false;
+  }
+};
+const smartFetch = (url, init = {}) =>
+  needsInsecure(url)
+    ? undiciFetch(url, { ...init, dispatcher: insecureAgent })
+    : fetch(url, init);
 import {
   fetchLenssisCatalog,
   fetchOmsProduct,
@@ -97,7 +113,7 @@ async function fetchHtml(url) {
 // HTML + 세션 쿠키까지 필요한 경우 (렌시스 OMS API용)
 async function fetchWithCookies(url) {
   try {
-    const res = await fetch(url, {
+    const res = await smartFetch(url, {
       headers: { "User-Agent": UA, "Accept-Language": "ko-KR,ko;q=0.9" },
       signal: AbortSignal.timeout(20000),
     });
@@ -117,7 +133,7 @@ async function fetchWithCookies(url) {
 
 async function fetchJson(url, { cookie = "", referer = "" } = {}) {
   try {
-    const res = await fetch(url, {
+    const res = await smartFetch(url, {
       headers: { "User-Agent": UA, Cookie: cookie, Referer: referer },
       signal: AbortSignal.timeout(20000),
     });
