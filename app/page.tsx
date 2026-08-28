@@ -179,7 +179,6 @@ export default function Home() {
                 </a>
               </div>
               <div className="danger-zone">
-                <p>목록에서 없애는 기능은 아래에 따로 뒀어요. 실수로 눌리지 않게 한 번 더 확인합니다.</p>
                 <button className="remove-link" onClick={() => removeProduct(p)}>
                   목록에서 제거
                 </button>
