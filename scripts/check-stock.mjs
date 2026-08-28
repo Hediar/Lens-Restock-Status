@@ -1,6 +1,7 @@
 // 품절/재입고 체커 — GitHub Actions에서 15분 간격 실행
 // 사용 env: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
 import { createClient } from "@supabase/supabase-js";
+import webpush from "web-push";
 import {
   fetchLenssisProducts,
   fetchShippingMap,
@@ -32,6 +33,42 @@ try {
   /* sb_secret_ 등 JWT가 아닌 키는 통과 */
 }
 const db = createClient(SUPABASE_URL, SERVICE_KEY);
+
+const VAPID_PUBLIC = process.env.VAPID_PUBLIC_KEY;
+const VAPID_PRIVATE = process.env.VAPID_PRIVATE_KEY;
+const pushEnabled = Boolean(VAPID_PUBLIC && VAPID_PRIVATE);
+if (pushEnabled) {
+  webpush.setVapidDetails("mailto:srlimvp@gmail.com", VAPID_PUBLIC, VAPID_PRIVATE);
+} else {
+  console.warn("VAPID 키 미설정 — 푸시 발송 생략");
+}
+
+async function sendRestockPush(product) {
+  if (!pushEnabled) return;
+  const { data: subs } = await db.from("push_subscriptions").select("*");
+  if (!subs?.length) return;
+  const payload = JSON.stringify({
+    title: "재입고 알림",
+    body: `${product.name} 무도수가 재입고됐어요!`,
+    url: product.buy_url ?? product.url,
+  });
+  for (const s of subs) {
+    try {
+      await webpush.sendNotification(
+        { endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } },
+        payload
+      );
+      console.log(`📨 푸시 발송: ${product.name}`);
+    } catch (e) {
+      if (e.statusCode === 404 || e.statusCode === 410) {
+        await db.from("push_subscriptions").delete().eq("id", s.id);
+        console.log("만료된 구독 정리");
+      } else {
+        console.warn(`푸시 실패 (${e.statusCode ?? e.message})`);
+      }
+    }
+  }
+}
 
 const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36";
@@ -67,7 +104,7 @@ async function applyStatus(product, inStock, extra = {}) {
     await db.from("stock_checks").insert({ product_id: product.id, in_stock: inStock });
     if (product.in_stock === false && inStock === true) {
       console.log(`🔔 재입고: ${product.name}`);
-      // TODO(4단계): starred 상품이면 웹 푸시 발송
+      if (product.starred) await sendRestockPush(product);
     }
   }
   await db.from("products").update(patch).eq("id", product.id);

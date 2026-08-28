@@ -126,3 +126,11 @@ body {
   text-align: center; font-size: 0.82rem; color: var(--muted); margin-top: 4px;
 }
 .tab svg { display: block; }
+
+/* 알림 배너 */
+.pushbanner {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  background: var(--primary-soft); border: 1px solid #dfe3ff; border-radius: 12px;
+  padding: 10px 14px; margin-bottom: 14px; font-size: 0.82rem; color: var(--primary);
+}
+.pushbanner .btn { flex-shrink: 0; }

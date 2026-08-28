@@ -1,0 +1,12 @@
+{
+  "name": "Lens Restock Status",
+  "short_name": "렌즈알림",
+  "description": "렌즈 품절·재입고 추적",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f6f7fb",
+  "theme_color": "#4f46e5",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}
