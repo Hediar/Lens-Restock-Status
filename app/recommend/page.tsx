@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import { SITE_LABEL, Site, supabase } from "@/lib/supabase";
+import Thumb from "@/components/Thumb";
 
 interface RecItem {
   product_id: string;
@@ -169,12 +170,7 @@ export default function RecommendPage() {
           {result.items.map((it) => (
             <div className="pcard" key={it.product_id}>
               <div className="row">
-                {it.image_url ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img className="thumb" src={it.image_url} alt="" />
-                ) : (
-                  <div className="thumb" />
-                )}
+                <Thumb src={it.image_url} alt={it.name} />
                 <div className="pinfo">
                   <div className="pname">{it.name}</div>
                   <div className="psite">{SITE_LABEL[it.site]}</div>

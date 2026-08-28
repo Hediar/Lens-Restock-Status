@@ -11,6 +11,7 @@ import {
   timeAgo,
 } from "@/lib/supabase";
 import AddByUrl from "@/components/AddByUrl";
+import Thumb from "@/components/Thumb";
 
 type Filter = "all" | "starred" | "out" | "lenssis" | "lenbling" | "other";
 
@@ -142,12 +143,7 @@ export default function Home() {
       {shown.map((p) => (
         <div className="pcard" key={p.id}>
           <div className="row" onClick={() => toggleDetail(p)} style={{ cursor: "pointer" }}>
-            {p.image_url ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img className="thumb" src={p.image_url} alt="" />
-            ) : (
-              <div className="thumb" />
-            )}
+            <Thumb src={p.image_url} alt={p.name} />
             <div className="pinfo">
               <div className="pname">{p.name}</div>
               <div className="psite">{SITE_LABEL[p.site]}</div>

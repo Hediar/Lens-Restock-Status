@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { supabase } from "@/lib/supabase";
+import Thumb from "@/components/Thumb";
 
 interface Preview {
   url: string;
@@ -105,12 +106,7 @@ export default function AddByUrl({ onAdded }: { onAdded: () => void }) {
       {preview && (
         <div className="pcard">
           <div className="row">
-            {preview.image ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img className="thumb" src={preview.image} alt="" />
-            ) : (
-              <div className="thumb" />
-            )}
+            <Thumb src={preview.image} alt={preview.name} />
             <div className="pinfo">
               <div className="pname">{preview.name}</div>
               <div className="psite">{preview.knownNote ?? new URL(preview.url).hostname}</div>
