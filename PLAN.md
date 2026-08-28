@@ -112,11 +112,36 @@ stock_checks       -- 전환 이력만
 product_embeddings -- RAG 색인
   product_id, content text, embedding vector(1536)
 
+kb_documents      -- 기관 지식 RAG 코퍼스
+  id, category, title, content, source_url, embedding vector(1536)
+
 push_subscriptions
   id, endpoint, p256dh, auth, created_at
 
 -- 기존 lenses/restock_logs는 2단계에서 drop (내 재고 관리 제거)
 ```
+
+## 에이전트 아키텍처 (OpenAI, 3중 폴백)
+
+**공통 모델 정책**: 예산 $4.93 내 운용(1~2인). 호출 래퍼가
+1순위 실패(에러/타임아웃/429) 시 2→3순위로 자동 폴백.
+
+| 에이전트 | 역할 | 모델 폴백 체인 |
+|---|---|---|
+| ① 오케스트라 | 사이트 투어 안내, 음성/텍스트 명령 → BUA 액션(화면 이동·필터·⭐토글). **리플렉션**: 액션 실행 전 의도·화면상태·액션 스키마 대조 검증, 불일치 시 재계획 | gpt-5-nano → gpt-4.1-nano → gpt-4o-mini |
+| ② RAG 지식 Q&A | 기관 정보 기반 렌즈 상식·안전 Q&A (출처 표시) | gpt-5-mini → gpt-4.1-mini → gpt-4o-mini |
+| ③ 추천 | 사진/텍스트 → 특징 추출 → 상품 RAG 추천 | gpt-5-mini → gpt-4.1-mini → gpt-4o-mini |
+
+- STT: 브라우저 Web Speech API(무료) 기본, 실패 시 gpt-4o-mini-transcribe
+- 임베딩: text-embedding-3-small (단일+재시도)
+- BUA 액션은 화이트리스트 스키마(navigate/filter/star/open)로 제한 —
+  스키마 밖 액션은 리플렉션 단계에서 거부
+
+## 지식 RAG (기관 정보)
+
+- 소스: 식약처 의료기기 안전정보(콘택트렌즈 사용·관리 수칙) 중심
+- 카테고리: 착용법 / 관리·세척 / 부작용·안전 / 구매 상식
+- 수집→청킹→임베딩→pgvector 색인(kb_documents), 답변에 출처 명시
 
 ## 단계별 계획
 
