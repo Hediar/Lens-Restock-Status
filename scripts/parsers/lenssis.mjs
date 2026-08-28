@@ -3,7 +3,9 @@
 // 사이트 내부 OMS API(옵션 단위 stock/status)로 판정한다.
 // 렌시스.com은 https 인증서 만료 상태라 크롤링은 http로 접근
 const BASE = "http://렌시스.com";
-const DISPLAY_BASE = "https://렌시스.com"; // 사용자 노출 링크
+// 렌시스.com은 https 인증서가 만료되어 브라우저에서 열리지 않음(ERR_CERT_DATE_INVALID)
+// → 사용자 노출 링크는 같은 사이트의 정상 https 도메인 사용
+const DISPLAY_BASE = "https://lenssis-online.com";
 const ONEDAY_CATEGORY = `${BASE}/325460388`;
 
 export function normalizeText(s) {
