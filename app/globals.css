@@ -111,3 +111,18 @@ body {
 }
 .tab.active { color: var(--primary); }
 .tab-icon { font-size: 1.15rem; }
+
+/* v2 디자인 다듬기 (와이어프레임 반영) */
+.status { padding: 0; border-radius: 0; background: none !important; }
+.status.in { color: var(--ok); }
+.status.out { color: var(--out); }
+.status.unknown { color: var(--muted); }
+.starbtn { filter: none; color: #c7cad1; display: flex; align-items: center; }
+.starbtn.on { color: var(--star); }
+.pcard { border-radius: 12px; }
+.thumb { width: 40px; height: 40px; border-radius: 8px; }
+.addurl {
+  border: 1.5px dashed var(--border); border-radius: 12px; padding: 12px;
+  text-align: center; font-size: 0.82rem; color: var(--muted); margin-top: 4px;
+}
+.tab svg { display: block; }

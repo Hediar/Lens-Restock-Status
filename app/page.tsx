@@ -145,7 +145,9 @@ export default function Home() {
               }}
               aria-label="관심 등록"
             >
-              ⭐
+              <svg width="20" height="20" viewBox="0 0 24 24" fill={p.starred ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round">
+                <path d="M12 3.5l2.6 5.3 5.9.9-4.2 4.1 1 5.8-5.3-2.8-5.3 2.8 1-5.8-4.2-4.1 5.9-.9L12 3.5z" />
+              </svg>
             </button>
           </div>
 
@@ -170,6 +172,9 @@ export default function Home() {
           )}
         </div>
       ))}
+      {products !== null && (
+        <div className="addurl">+ URL로 상품 추가 (준비 중)</div>
+      )}
     </main>
   );
 }
