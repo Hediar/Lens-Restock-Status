@@ -156,7 +156,9 @@ push_subscriptions
 - [ ] **6. RAG 렌즈 추천 챗봇** — pgvector+OpenAI 임베딩 색인, 사진 특징 추출
       (OpenAI 비전, structured output), hybrid retrieval(벡터+재고 필터),
       근거 기반 추천 UI. 사진 미저장.
-      **렌즈라라 상품 1회성 크롤링(추천 전용, tracking=false)로 코퍼스 확장.**
+      **추천 풀 = DB(products)에 현재 등록된 렌블링+렌시스+렌즈라라 상품 전체.**
+      렌즈라라는 1회성 크롤링으로 등록(추천 전용, tracking=false)하고,
+      추천 시점마다 DB에 있는 상품만 후보로 사용 (제거된 상품은 자동 제외).
 - [ ] **7. 임의 URL 추적 등록** — 상품 링크 붙여넣기 → 도메인별 파서 자동
       선택(렌블링/렌시스는 기존 파서, 그 외 generic: JSON-LD availability →
       품절 키워드 스캔 폴백) → 현재 판정 미리보기로 확인 후 등록 →
