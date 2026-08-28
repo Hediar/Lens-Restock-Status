@@ -90,7 +90,7 @@ export default function Home() {
   return (
     <main>
       <div className="header">
-        <h1>👁️ 렌즈 현황</h1>
+        <h1>렌즈 현황</h1>
         <span className="checked-at">체크: {timeAgo(lastChecked)}</span>
       </div>
       <p className="sub">⭐ 누르면 재입고 시 알림을 받아요.</p>

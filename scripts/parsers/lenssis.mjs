@@ -54,3 +54,13 @@ function normalizeUrl(u) {
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// 개별 상품 페이지에서 자기 자신의 재고 판정 (목록에서 사라진 상품 폴백용)
+export function parseLenssisSingle(html) {
+  if (!html) return null;
+  const m = html.match(/<div id="product-\d+" class="([^"]*)"/);
+  if (!m) return null;
+  if (/\binstock\b/.test(m[1])) return true;
+  if (/\boutofstock\b/.test(m[1])) return false;
+  return null;
+}
