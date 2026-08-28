@@ -2,7 +2,11 @@
 // 사용 env: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
 import { createClient } from "@supabase/supabase-js";
 import webpush from "web-push";
-import { fetchLenssisOneDay } from "./parsers/lenssis.mjs";
+import {
+  fetchLenssisCatalog,
+  fetchOmsProduct,
+  judgePlanoFromOms,
+} from "./parsers/lenssis.mjs";
 import { discoverPureble, parseLenblingProduct } from "./parsers/lenbling.mjs";
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -90,6 +94,45 @@ async function fetchHtml(url) {
   }
 }
 
+// HTML + 세션 쿠키까지 필요한 경우 (렌시스 OMS API용)
+async function fetchWithCookies(url) {
+  try {
+    const res = await fetch(url, {
+      headers: { "User-Agent": UA, "Accept-Language": "ko-KR,ko;q=0.9" },
+      signal: AbortSignal.timeout(20000),
+    });
+    if (!res.ok) {
+      console.warn(`HTTP ${res.status}: ${url}`);
+      return null;
+    }
+    const cookie = (res.headers.getSetCookie?.() ?? [])
+      .map((c) => c.split(";")[0])
+      .join("; ");
+    return { html: await res.text(), cookie };
+  } catch (e) {
+    console.warn(`fetch 실패: ${url} (${e.message})`);
+    return null;
+  }
+}
+
+async function fetchJson(url, { cookie = "", referer = "" } = {}) {
+  try {
+    const res = await fetch(url, {
+      headers: { "User-Agent": UA, Cookie: cookie, Referer: referer },
+      signal: AbortSignal.timeout(20000),
+    });
+    const text = await res.text();
+    if (!res.ok || !text) {
+      console.warn(`JSON HTTP ${res.status} len ${text.length}: ${url}`);
+      return null;
+    }
+    return JSON.parse(text);
+  } catch (e) {
+    console.warn(`JSON fetch 실패: ${url} (${e.message})`);
+    return null;
+  }
+}
+
 // 상태 반영: 전환 시에만 stock_checks 기록. fetch 실패(null)는 상태 유지.
 async function applyStatus(product, inStock, extra = {}) {
   const now = new Date().toISOString();
@@ -123,9 +166,9 @@ async function upsertProduct(site, { url, name, image = null, colorDesc = null }
 }
 
 async function runLenssis() {
-  console.log("── 렌시스 스윕 (원데이 카테고리 1회 요청)");
-  const { products, mapLoaded } = await fetchLenssisOneDay(fetchHtml);
-  console.log(`원데이 ${products.length}개, 정상배송 맵: ${mapLoaded ? "OK" : "실패"}`);
+  console.log("── 렌시스 스윕");
+  const { products, cookie } = await fetchLenssisCatalog(fetchWithCookies);
+  console.log(`원데이 카탈로그 ${products.length}개`);
   if (!products.length) return;
   for (const item of products) {
     const product = await upsertProduct("lenssis", item);
@@ -133,7 +176,12 @@ async function runLenssis() {
     const extra = {};
     if (item.image && !product.image_url) extra.image_url = item.image;
     if (!product.buy_url) extra.buy_url = item.url;
-    await applyStatus(product, item.inStock, extra);
+    // 옵션 단위 실재고: OMS API에서 무도수 stock/status 판정
+    const oms = await fetchOmsProduct(fetchJson, item.idx, cookie);
+    const inStock = judgePlanoFromOms(oms);
+    if (inStock === null) console.warn(`무도수 판정 불가: ${item.name}`);
+    await applyStatus(product, inStock, extra);
+    await sleep(800);
   }
 }
 
