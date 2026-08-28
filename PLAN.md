@@ -27,8 +27,8 @@
    유지 (pgvector 확장은 무료). OpenAI 임베딩 비용은 $0.02/1M 토큰 수준으로
    상품 수백 개 색인 + 질의당 1회 호출이면 사실상 무시 가능.
 3. **사진은 저장하지 않음** — Storage 미사용. 업로드 → 분석 → 즉시 폐기.
-4. LLM(비전 분석·답변 생성)은 Claude API 사용 — Supabase 외 비용이며
-   호출당 소액 (사진 분석 1회 수십 원 수준).
+4. LLM은 **전부 OpenAI로 통일** (임베딩 + 비전 분석 + 답변 생성) —
+   키/과금 관리 단일화. Supabase 외 비용이며 호출당 소액.
 
 ## 사이트 조사 결과 (2026-08-28 확인)
 
@@ -65,11 +65,11 @@ Next.js (Vercel: edu-ai-agent.vercel.app)
   └─ (기존) 내 보유 렌즈 재고 관리
 
 RAG 파이프라인 (멀티모달)
-  ① 사진 업로드(미저장) ─ Claude Vision + structured output
+  ① 사진 업로드(미저장) ─ OpenAI 비전 모델 + structured output
   ② 특징 JSON {홍채색, 피부톤, 어울리는 계열, 피할 계열}
   ③ 특징→검색문장→OpenAI 임베딩→pgvector 유사도 검색
      + SQL 필터: in_stock=true, 무도수 옵션 존재
-  ④ Claude가 검색 결과만 근거로 추천 생성 (+품절 상품은 재입고 알림 제안)
+  ④ OpenAI가 검색 결과만 근거로 추천 생성 (+품절 상품은 재입고 알림 제안)
   ※ 텍스트 질의는 ①②를 건너뛰고 같은 파이프라인
 ```
 
@@ -99,13 +99,13 @@ push_subscriptions
 - [ ] **4. 웹 푸시** — VAPID(GitHub Secrets), Service Worker, 전환 시 발송
 - [ ] **5. 통계** — 품절 빈도 랭킹, 지속시간, 재입고 시간대 패턴
 - [ ] **6. RAG 렌즈 추천 챗봇** — pgvector+OpenAI 임베딩 색인, 사진 특징 추출
-      (Claude Vision, structured output), hybrid retrieval(벡터+재고 필터),
+      (OpenAI 비전, structured output), hybrid retrieval(벡터+재고 필터),
       근거 기반 추천 UI. 사진 미저장.
 
 ## 필요한 키/설정 (해당 단계에서)
 
 - GitHub Secrets: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`,
   `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` (3~4단계)
-- Vercel 환경변수: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`
+- Vercel 환경변수: `OPENAI_API_KEY`
   (6단계, 서버 라우트에서만 사용 — `NEXT_PUBLIC_` 접두사 금지)
 - GitHub Secrets에도 `OPENAI_API_KEY` 추가 (3단계 크론이 신상품 색인 시 사용)
