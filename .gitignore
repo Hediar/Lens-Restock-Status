@@ -6,3 +6,5 @@ out/
 *.tsbuildinfo
 next-env.d.ts
 vapid-keys.local.json
+send-test-push.local.mjs
+vapid.json

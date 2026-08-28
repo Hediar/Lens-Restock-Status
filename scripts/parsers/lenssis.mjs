@@ -1,7 +1,8 @@
 // 렌시스 — lenssis-online.com (Imweb, = 렌시스.com)
 // 원데이 카테고리에서 상품 목록을 얻고, 각 상품의 무도수(도수 0.00) 실재고는
 // 사이트 내부 OMS API(옵션 단위 stock/status)로 판정한다.
-const BASE = "https://lenssis-online.com";
+const BASE = "https://lenssis-online.com"; // 크롤링용 (https 정상)
+const DISPLAY_BASE = "https://렌시스.com";   // 사용자 노출 링크 (동일 사이트)
 const ONEDAY_CATEGORY = `${BASE}/325460388`;
 
 export function normalizeText(s) {
@@ -32,7 +33,7 @@ export async function fetchLenssisCatalog(fetchFn) {
     products.push({
       idx,
       name,
-      url: `${BASE}/325460388/?idx=${idx}`,
+      url: `${DISPLAY_BASE}/325460388/?idx=${idx}`,
       image: block.match(/<img[^>]+src="([^"]+)"/)?.[1] ?? null,
     });
   }
