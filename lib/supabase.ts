@@ -1,7 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 
-// 개인용 앱: anon(publishable) 키는 클라이언트 노출을 전제로 설계된 공개 키입니다.
-// Vercel 환경변수가 있으면 우선 사용하고, 없으면 기본값으로 동작합니다.
+// 개인용 앱: anon(publishable) 키는 클라이언트 노출 전제로 설계된 공개 키.
 const supabaseUrl =
   process.env.NEXT_PUBLIC_SUPABASE_URL ?? "https://eoncsbfsejamcjwhzdwz.supabase.co";
 const supabaseAnonKey =
@@ -10,50 +9,43 @@ const supabaseAnonKey =
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-export type LensType = "daily" | "biweekly" | "monthly" | "yearly";
+export type Site = "lenssis" | "lenbling" | "lenslala" | "other";
 
-export interface Lens {
+export interface Product {
   id: string;
-  brand: string;
-  product_name: string;
-  lens_type: LensType;
-  power: number;
-  base_curve: number | null;
-  diameter: number | null;
-  stock_quantity: number;
-  low_stock_threshold: number;
-  purchase_url: string | null;
-  memo: string | null;
+  site: Site;
+  name: string;
+  url: string;
+  image_url: string | null;
+  color_desc: string | null;
+  in_stock: boolean | null; // null = 아직 확인 전
+  starred: boolean;
+  tracking: boolean;
+  last_checked_at: string | null;
   created_at: string;
-  updated_at: string;
 }
 
-export interface RestockLog {
+export interface StockCheck {
   id: string;
-  lens_id: string;
-  quantity: number;
-  price: number | null;
-  restocked_at: string;
-  memo: string | null;
+  product_id: string;
+  in_stock: boolean;
+  changed_at: string;
 }
 
-export const LENS_TYPE_LABEL: Record<LensType, string> = {
-  daily: "원데이",
-  biweekly: "2주용",
-  monthly: "한달용",
-  yearly: "1년용",
+export const SITE_LABEL: Record<Site, string> = {
+  lenssis: "렌시스",
+  lenbling: "렌블링",
+  lenslala: "렌즈라라",
+  other: "기타",
 };
 
-export type StockStatus = "ok" | "low" | "out";
-
-export function stockStatus(lens: Lens): StockStatus {
-  if (lens.stock_quantity <= 0) return "out";
-  if (lens.stock_quantity <= lens.low_stock_threshold) return "low";
-  return "ok";
+export function timeAgo(iso: string | null): string {
+  if (!iso) return "확인 전";
+  const diff = Date.now() - new Date(iso).getTime();
+  const min = Math.floor(diff / 60000);
+  if (min < 1) return "방금 전";
+  if (min < 60) return `${min}분 전`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}시간 전`;
+  return `${Math.floor(hr / 24)}일 전`;
 }
-
-export const STATUS_LABEL: Record<StockStatus, string> = {
-  ok: "충분",
-  low: "재입고 임박",
-  out: "품절",
-};

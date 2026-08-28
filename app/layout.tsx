@@ -1,15 +1,25 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import TabBar from "@/components/TabBar";
 
 export const metadata: Metadata = {
   title: "Lens Restock Status",
-  description: "콘택트렌즈 재고·재입고 현황 트래커",
+  description: "렌즈 품절·재입고 추적과 맞춤 추천",
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="ko">
-      <body>{children}</body>
+      <body>
+        <div className="app">{children}</div>
+        <TabBar />
+      </body>
     </html>
   );
 }
