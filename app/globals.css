@@ -290,3 +290,8 @@ body {
 .feat { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
 .recmsg { font-size: 0.88rem; margin-bottom: 14px; }
 .reason { font-size: 0.8rem; color: var(--muted); margin-top: 8px; }
+
+/* URL 추가 (7단계) */
+.addurl-btn { width: 100%; cursor: pointer; background: none; font-family: inherit; }
+.addurl-panel { margin-top: 4px; }
+.addurl-error { font-size: 0.8rem; color: var(--out); margin-bottom: 8px; }

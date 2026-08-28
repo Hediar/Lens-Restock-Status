@@ -25,6 +25,7 @@ import {
 } from "./parsers/lenssis.mjs";
 import { discoverPureble, parseLenblingProduct } from "./parsers/lenbling.mjs";
 import { fetchLenslalaOneDay } from "./parsers/lenslala.mjs";
+import { parseGenericProduct } from "./parsers/generic.mjs";
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -259,6 +260,25 @@ async function runLenslala() {
   await db.from("products").update({ last_checked_at: now }).eq("site", "lenslala");
 }
 
+// 사용자가 URL로 등록한 상품(site='other') — 범용 판정으로 체크
+async function runOther() {
+  const { data: others } = await db
+    .from("products")
+    .select("*")
+    .eq("site", "other")
+    .eq("tracking", true);
+  if (!others?.length) return;
+  console.log(`── 기타 URL 상품 ${others.length}개 체크`);
+  for (const p of others) {
+    const html = await fetchHtml(p.url);
+    const parsed = parseGenericProduct(html);
+    await applyStatus(p, parsed?.inStock ?? null, {
+      ...(parsed?.image && !p.image_url ? { image_url: parsed.image } : {}),
+    });
+    await sleep(1500);
+  }
+}
+
 // RAG 색인: 임베딩 없는 상품을 OpenAI로 일괄 색인
 async function indexEmbeddings() {
   const OPENAI_KEY = process.env.OPENAI_API_KEY;
@@ -302,6 +322,7 @@ const t0 = Date.now();
 await runLenssis();
 await runLenbling();
 await runLenslala();
+await runOther();
 await indexEmbeddings();
 const { count } = await db
   .from("products")

@@ -8,8 +8,9 @@ import {
   supabase,
   timeAgo,
 } from "@/lib/supabase";
+import AddByUrl from "@/components/AddByUrl";
 
-type Filter = "all" | "starred" | "out" | "lenssis" | "lenbling";
+type Filter = "all" | "starred" | "out" | "lenssis" | "lenbling" | "other";
 
 const FILTERS: { key: Filter; label: string }[] = [
   { key: "all", label: "전체" },
@@ -17,6 +18,7 @@ const FILTERS: { key: Filter; label: string }[] = [
   { key: "out", label: "품절만" },
   { key: "lenssis", label: "렌시스" },
   { key: "lenbling", label: "렌블링" },
+  { key: "other", label: "기타" },
 ];
 
 export default function Home() {
@@ -93,7 +95,7 @@ export default function Home() {
   const shown = (products ?? []).filter((p) => {
     if (filter === "starred") return p.starred;
     if (filter === "out") return p.in_stock === false;
-    if (filter === "lenssis" || filter === "lenbling") return p.site === filter;
+    if (filter === "lenssis" || filter === "lenbling" || filter === "other") return p.site === filter;
     return true;
   });
 
@@ -187,9 +189,7 @@ export default function Home() {
           )}
         </div>
       ))}
-      {products !== null && (
-        <div className="addurl">+ URL로 상품 추가 (준비 중)</div>
-      )}
+      {products !== null && <AddByUrl onAdded={load} />}
     </main>
   );
 }
