@@ -23,8 +23,9 @@
    연 수백 MB 누적 → 품절↔재고 전환 때만 기록하고, 상시 상태는
    `products.in_stock` + `last_checked_at` 갱신으로 처리.
    (품절 빈도/지속시간 통계는 전환 이력만으로 계산 가능)
-2. **임베딩은 Supabase Edge Function 내장 모델(gte-small, 384차원)** —
-   무료, 외부 임베딩 API 불필요. pgvector 확장도 무료.
+2. **임베딩은 OpenAI `text-embedding-3-small` (1536차원)** — Supabase 비용 0
+   유지 (pgvector 확장은 무료). OpenAI 임베딩 비용은 $0.02/1M 토큰 수준으로
+   상품 수백 개 색인 + 질의당 1회 호출이면 사실상 무시 가능.
 3. **사진은 저장하지 않음** — Storage 미사용. 업로드 → 분석 → 즉시 폐기.
 4. LLM(비전 분석·답변 생성)은 Claude API 사용 — Supabase 외 비용이며
    호출당 소액 (사진 분석 1회 수십 원 수준).
@@ -53,7 +54,7 @@ GitHub Actions (schedule: */30)
   └─ scripts/check-stock.mjs
        ├─ 파서: lenbling(JSON-LD offers) / lenssis(사이트맵+상품페이지)
        ├─ products.in_stock 갱신, 전환 시에만 stock_checks 기록
-       ├─ 신상품 발견 시 → 상품 설명 임베딩(Edge Function) → 색인
+       ├─ 신상품 발견 시 → 상품 설명 임베딩(OpenAI) → 색인
        └─ 품절→재고 전환 시 web-push 발송 (VAPID)
 
 Next.js (Vercel: edu-ai-agent.vercel.app)
@@ -66,7 +67,7 @@ Next.js (Vercel: edu-ai-agent.vercel.app)
 RAG 파이프라인 (멀티모달)
   ① 사진 업로드(미저장) ─ Claude Vision + structured output
   ② 특징 JSON {홍채색, 피부톤, 어울리는 계열, 피할 계열}
-  ③ 특징→검색문장→gte-small 임베딩→pgvector 유사도 검색
+  ③ 특징→검색문장→OpenAI 임베딩→pgvector 유사도 검색
      + SQL 필터: in_stock=true, 무도수 옵션 존재
   ④ Claude가 검색 결과만 근거로 추천 생성 (+품절 상품은 재입고 알림 제안)
   ※ 텍스트 질의는 ①②를 건너뛰고 같은 파이프라인
@@ -83,7 +84,7 @@ stock_checks      -- 전환 이력만 (무료 티어 용량 보호)
   id, product_id, in_stock, changed_at
 
 product_embeddings -- RAG 색인
-  product_id, content text, embedding vector(384)
+  product_id, content text, embedding vector(1536)
 
 push_subscriptions
   id, endpoint, p256dh, auth, created_at
@@ -97,7 +98,7 @@ push_subscriptions
       렌시스 사이트맵 자동 등록
 - [ ] **4. 웹 푸시** — VAPID(GitHub Secrets), Service Worker, 전환 시 발송
 - [ ] **5. 통계** — 품절 빈도 랭킹, 지속시간, 재입고 시간대 패턴
-- [ ] **6. RAG 렌즈 추천 챗봇** — pgvector+gte-small 색인, 사진 특징 추출
+- [ ] **6. RAG 렌즈 추천 챗봇** — pgvector+OpenAI 임베딩 색인, 사진 특징 추출
       (Claude Vision, structured output), hybrid retrieval(벡터+재고 필터),
       근거 기반 추천 UI. 사진 미저장.
 
@@ -105,4 +106,6 @@ push_subscriptions
 
 - GitHub Secrets: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`,
   `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` (3~4단계)
-- Vercel 환경변수: `ANTHROPIC_API_KEY` (6단계, 서버 라우트에서만 사용)
+- Vercel 환경변수: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`
+  (6단계, 서버 라우트에서만 사용 — `NEXT_PUBLIC_` 접두사 금지)
+- GitHub Secrets에도 `OPENAI_API_KEY` 추가 (3단계 크론이 신상품 색인 시 사용)
