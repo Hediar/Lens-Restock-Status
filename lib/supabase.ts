@@ -1,13 +1,13 @@
 import { createClient } from "@supabase/supabase-js";
 
 // 개인용 앱: anon(publishable) 키는 클라이언트 노출 전제로 설계된 공개 키.
-const supabaseUrl =
+export const SUPABASE_URL =
   process.env.NEXT_PUBLIC_SUPABASE_URL ?? "https://eoncsbfsejamcjwhzdwz.supabase.co";
-const supabaseAnonKey =
+export const SUPABASE_ANON_KEY =
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??
   "sb_publishable_OA40E8QSEUX1XCtfnMRLHg_leduCpnp";
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 export type Site = "lenssis" | "lenbling" | "lenslala" | "other";
 
