@@ -42,8 +42,10 @@ export default function RecommendPage() {
     reader.readAsDataURL(f);
   }
 
-  async function submit() {
-    if (!text.trim() && !image) return;
+  async function submit(preset?: string) {
+    const query = (preset ?? text).trim();
+    if (preset) setText(preset);
+    if (!query && !image) return;
     setError(null);
     setResult(null);
     setStage(image ? "사진 분석 중…" : "상품 검색 중…");
@@ -54,7 +56,7 @@ export default function RecommendPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          text: text.trim() || undefined,
+          text: query || undefined,
           imageBase64: image?.b64,
           imageMime: image?.mime,
         }),
@@ -94,8 +96,9 @@ export default function RecommendPage() {
         ) : (
           <>
             <div style={{ fontSize: "1.5rem" }}>📷</div>
-            사진 올리기
-            <small>서버에 저장되지 않아요</small>
+            <b>눈이 잘 보이는 셀카를 올려주세요</b>
+            <small>정면 · 밝은 곳에서 찍은 사진이면 충분해요 (눈 클로즈업도 OK)</small>
+            <small>렌즈를 빼거나 평소 모습이면 더 정확해요 · 서버에 저장되지 않아요</small>
           </>
         )}
         <input
@@ -112,15 +115,35 @@ export default function RecommendPage() {
         </button>
       )}
 
+      <p className="or-line">사진이 없어도 괜찮아요 — 원하는 느낌을 고르거나 적어주세요</p>
+      <div className="presets">
+        {[
+          "차분한 데일리 브라운",
+          "맑고 시원한 그레이",
+          "자연스러운 애쉬 계열",
+          "화사한 포인트 컬러",
+          "처음이라 뭐가 좋을지 모르겠어요",
+        ].map((p) => (
+          <button
+            key={p}
+            className="chip"
+            disabled={stage !== null}
+            onClick={() => submit(p)}
+          >
+            {p}
+          </button>
+        ))}
+      </div>
+
       <div className="askrow">
         <input
           className="ask"
-          placeholder="예: 차분한 그레이 계열 추천해줘"
+          placeholder="직접 입력: 예) 촉촉해 보이는 초코 브라운"
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && submit()}
         />
-        <button className="btn primary" onClick={submit} disabled={stage !== null}>
+        <button className="btn primary" onClick={() => submit()} disabled={stage !== null}>
           {stage ? "…" : "추천"}
         </button>
       </div>

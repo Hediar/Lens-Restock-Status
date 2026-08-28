@@ -295,3 +295,10 @@ body {
 .addurl-btn { width: 100%; cursor: pointer; background: none; font-family: inherit; }
 .addurl-panel { margin-top: 4px; }
 .addurl-error { font-size: 0.8rem; color: var(--out); margin-bottom: 8px; }
+
+/* 추천 UX 개선 */
+.photo-zone b { font-size: 0.9rem; color: var(--text); font-weight: 600; }
+.or-line { font-size: 0.78rem; color: var(--muted); margin: 14px 0 8px; text-align: center; }
+.presets { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin-bottom: 12px; }
+.presets .chip { cursor: pointer; }
+.presets .chip:disabled { opacity: 0.5; }
