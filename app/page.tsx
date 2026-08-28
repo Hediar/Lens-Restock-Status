@@ -57,6 +57,16 @@ export default function Home() {
     if (error) load();
   }
 
+  async function removeProduct(p: Product) {
+    if (!confirm(`'${p.name}'을(를) 목록에서 제거할까요?\n(추적이 중단되며, 크론이 다시 추가하지 않아요)`)) return;
+    setProducts((prev) => prev?.filter((x) => x.id !== p.id) ?? null);
+    const { error } = await supabase
+      .from("products")
+      .update({ tracking: false })
+      .eq("id", p.id);
+    if (error) load();
+  }
+
   async function toggleDetail(p: Product) {
     if (openId === p.id) {
       setOpenId(null);
@@ -167,6 +177,9 @@ export default function Home() {
                 <a className="btn" href={p.buy_url ?? p.url} target="_blank" rel="noreferrer">
                   상품 페이지 열기
                 </a>
+                <button className="btn danger-text" onClick={() => removeProduct(p)}>
+                  목록에서 제거
+                </button>
               </div>
             </div>
           )}

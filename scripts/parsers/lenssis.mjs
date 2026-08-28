@@ -1,8 +1,9 @@
 // 렌시스 — lenssis-online.com (Imweb, = 렌시스.com)
 // 원데이 카테고리에서 상품 목록을 얻고, 각 상품의 무도수(도수 0.00) 실재고는
 // 사이트 내부 OMS API(옵션 단위 stock/status)로 판정한다.
-const BASE = "https://lenssis-online.com"; // 크롤링용 (https 정상)
-const DISPLAY_BASE = "https://렌시스.com";   // 사용자 노출 링크 (동일 사이트)
+// 렌시스.com은 https 인증서 만료 상태라 크롤링은 http로 접근
+const BASE = "http://렌시스.com";
+const DISPLAY_BASE = "https://렌시스.com"; // 사용자 노출 링크
 const ONEDAY_CATEGORY = `${BASE}/325460388`;
 
 export function normalizeText(s) {
@@ -71,8 +72,8 @@ export function judgePlanoFromOms(json) {
 }
 
 export async function fetchOmsProduct(fetchJsonFn, idx, cookie) {
-  return fetchJsonFn(`${BASE}/ajax/oms/OMS_get_product.cm?prod_idx=${idx}`, {
-    cookie,
-    referer: `${BASE}/325460388/?idx=${idx}`,
-  });
+  // HTTP 헤더는 ASCII만 허용 → 한글 도메인은 punycode로 변환해 사용
+  const api = new URL(`${BASE}/ajax/oms/OMS_get_product.cm?prod_idx=${idx}`).href;
+  const referer = new URL(`${BASE}/325460388/?idx=${idx}`).href;
+  return fetchJsonFn(api, { cookie, referer });
 }

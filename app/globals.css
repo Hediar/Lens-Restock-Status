@@ -134,3 +134,5 @@ body {
   padding: 10px 14px; margin-bottom: 14px; font-size: 0.82rem; color: var(--primary);
 }
 .pushbanner .btn { flex-shrink: 0; }
+.btn.danger-text { color: var(--out); border-color: transparent; background: transparent; }
+.btn.danger-text:hover { background: var(--out-soft); }
