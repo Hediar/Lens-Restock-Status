@@ -243,17 +243,20 @@ async function runLenslala() {
   console.log("── 렌즈라라 카탈로그 동기화 (추천 전용)");
   const items = await fetchLenslalaOneDay(fetchHtml);
   console.log(`원데이 ${items.length}개`);
-  for (const item of items) {
-    const { data } = await db.from("products").select("id").eq("url", item.url).maybeSingle();
-    if (!data) {
-      await db.from("products").insert({
-        site: "lenslala", name: item.name, url: item.url,
-        image_url: item.image, tracking: false, last_checked_at: new Date().toISOString(),
-      });
-    } else {
-      await db.from("products").update({ last_checked_at: new Date().toISOString() }).eq("id", data.id);
-    }
+  // 배치 upsert: 한 건씩 등록하면 타임아웃 위험
+  const now = new Date().toISOString();
+  for (let i = 0; i < items.length; i += 200) {
+    const rows = items.slice(i, i + 200).map((item) => ({
+      site: "lenslala", name: item.name, url: item.url,
+      image_url: item.image, tracking: false, last_checked_at: now,
+    }));
+    const { error } = await db
+      .from("products")
+      .upsert(rows, { onConflict: "url", ignoreDuplicates: true });
+    if (error) console.warn(`렌즈라라 upsert 실패: ${error.message}`);
   }
+  // 이번 동기화에 없는 기존 렌즈라라 행의 시각만 갱신 (24h 스킵 판단용)
+  await db.from("products").update({ last_checked_at: now }).eq("site", "lenslala");
 }
 
 // RAG 색인: 임베딩 없는 상품을 OpenAI로 일괄 색인

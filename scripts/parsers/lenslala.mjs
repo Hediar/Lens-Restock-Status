@@ -43,6 +43,8 @@ function parseVisibleCards(html) {
     const name = match[3]
       .replace(/\s*\([^)]*\)\s*일본 컬러렌즈\s*$/, "")
       .trim();
+    // 무도수 사용자 대상: 난시용(토릭) CYL/AXIS 변형 상품은 제외
+    if (/난시|토릭|toric|CYL|멀티포컬|multifocal|ADDs/i.test(name)) continue;
     if (url && name) products.push({ name, url, image: normalizeUrl(match[2]), colorDesc: name });
   }
   return products;
