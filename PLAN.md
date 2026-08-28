@@ -9,6 +9,7 @@
 |---|---|
 | 추적 대상 ① | **렌시스** (lenssis.site) — 전 상품 |
 | 추적 대상 ② | **렌블링** (lenbling.com) — 퓨어블 기본 사이즈만 |
+| 추천 전용 코퍼스 | **렌즈라라** — 재입고 추적/알림 없이 RAG 추천 대상에만 포함 |
 | 도수 필터 | 무도수(0.00)만 |
 | 알림 정책 | **⭐ 관심 등록한 상품의 재입고 전환만 푸시** (신상품 알림 없음) |
 | 알림 채널 | 웹 푸시 (PWA) |
@@ -71,7 +72,8 @@ RAG 파이프라인 (멀티모달)
   ① 사진 업로드(미저장) ─ OpenAI 비전 + structured output
   ② 특징 JSON {홍채색, 피부톤, 어울리는 계열, 피할 계열}
   ③ 특징→검색문장→OpenAI 임베딩→pgvector 유사도 검색
-     + SQL 필터: in_stock=true, 무도수 옵션 존재
+     + SQL 필터: 무도수 옵션 존재, 추적 상품은 in_stock=true 우선
+     (렌즈라라 등 추천 전용 상품은 재고 정보 없이 추천 가능)
   ④ OpenAI가 검색 결과만 근거로 추천 생성 (+품절 상품은 ⭐ 등록 제안)
   ※ 텍스트 질의는 ①②를 건너뛰고 동일 파이프라인 (단발 질의, 대화 기억 없음)
 ```
@@ -79,11 +81,14 @@ RAG 파이프라인 (멀티모달)
 ## DB 스키마
 
 ```sql
-products           -- 추적 상품
-  id, site ('lenssis'|'lenbling'), name, url, image_url,
+products           -- 상품 (추적 + 추천 전용 모두)
+  id, site ('lenssis'|'lenbling'|'lenslala'), name, url, image_url,
   color_desc text,                -- RAG 코퍼스용 색상/스펙 설명
-  in_stock boolean, starred boolean default false,
-  last_checked_at, tracking boolean default true, created_at
+  in_stock boolean,               -- 추천 전용(lenslala)은 null 허용
+  starred boolean default false,
+  last_checked_at,
+  tracking boolean default true,  -- false = 추천 전용(크론 체크 제외)
+  created_at
 
 stock_checks       -- 전환 이력만
   id, product_id, in_stock, changed_at
@@ -110,6 +115,7 @@ push_subscriptions
 - [ ] **6. RAG 렌즈 추천 챗봇** — pgvector+OpenAI 임베딩 색인, 사진 특징 추출
       (OpenAI 비전, structured output), hybrid retrieval(벡터+재고 필터),
       근거 기반 추천 UI. 사진 미저장.
+      **렌즈라라 상품 1회성 크롤링(추천 전용, tracking=false)로 코퍼스 확장.**
 - [ ] **(선택) 7. 제출물 정리** — README 아키텍처 다이어그램, 데모 시나리오
 
 ## 필요한 키/설정 (해당 단계에서)
