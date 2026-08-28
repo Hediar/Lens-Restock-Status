@@ -4,7 +4,9 @@ import { useCallback, useEffect, useState } from "react";
 import {
   Product,
   StockCheck,
+  StockLevel,
   SITE_LABEL,
+  estimateDaysLeft,
   supabase,
   timeAgo,
 } from "@/lib/supabase";
@@ -26,6 +28,7 @@ export default function Home() {
   const [filter, setFilter] = useState<Filter>("all");
   const [openId, setOpenId] = useState<string | null>(null);
   const [history, setHistory] = useState<Record<string, StockCheck[]>>({});
+  const [levels, setLevels] = useState<Record<string, StockLevel[]>>({});
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -83,6 +86,13 @@ export default function Home() {
         .order("changed_at", { ascending: false })
         .limit(8);
       setHistory((h) => ({ ...h, [p.id]: (data as StockCheck[]) ?? [] }));
+      const { data: lv } = await supabase
+        .from("stock_levels")
+        .select("*")
+        .eq("product_id", p.id)
+        .order("recorded_at", { ascending: false })
+        .limit(20);
+      setLevels((s) => ({ ...s, [p.id]: (lv as StockLevel[]) ?? [] }));
     }
   }
 
@@ -147,7 +157,13 @@ export default function Home() {
                 p.in_stock === true ? "in" : p.in_stock === false ? "out" : "unknown"
               }`}
             >
-              {p.in_stock === true ? "재고" : p.in_stock === false ? "품절" : "확인 전"}
+              {p.in_stock === true
+                ? p.plano_stock != null
+                  ? `재고 ${p.plano_stock.toLocaleString()}개`
+                  : "재고"
+                : p.in_stock === false
+                  ? "품절"
+                  : "확인 전"}
             </span>
             <button
               className={`starbtn ${p.starred ? "on" : ""}`}
@@ -165,6 +181,25 @@ export default function Home() {
 
           {openId === p.id && (
             <div className="detail">
+              {p.plano_stock != null && (
+                <div className="hrow" style={{ fontWeight: 600 }}>
+                  <span>무도수 재고 {p.plano_stock.toLocaleString()}개</span>
+                  <span>
+                    {(() => {
+                      const d = estimateDaysLeft(levels[p.id] ?? [], p.plano_stock);
+                      return d != null
+                        ? `예상 품절까지 약 ${d}일`
+                        : "소진 속도 계산 중 (이력 수집 중)";
+                    })()}
+                  </span>
+                </div>
+              )}
+              {(levels[p.id] ?? []).slice(0, 4).map((lv) => (
+                <div className="hrow" key={lv.id}>
+                  <span>{new Date(lv.recorded_at).toLocaleString("ko-KR")}</span>
+                  <span>수량 {lv.stock.toLocaleString()}개</span>
+                </div>
+              ))}
               {(history[p.id] ?? []).length > 0 ? (
                 history[p.id].map((h) => (
                   <div className="hrow" key={h.id}>

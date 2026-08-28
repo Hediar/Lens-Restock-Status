@@ -22,6 +22,7 @@ import {
   fetchLenssisCatalog,
   fetchOmsProduct,
   judgePlanoFromOms,
+  planoStockFromOms,
 } from "./parsers/lenssis.mjs";
 import { discoverPureble, parseLenblingProduct } from "./parsers/lenbling.mjs";
 import { fetchLenslalaOneDay } from "./parsers/lenslala.mjs";
@@ -199,6 +200,12 @@ async function runLenssis() {
     const oms = await fetchOmsProduct(fetchJson, item.idx, cookie);
     const inStock = judgePlanoFromOms(oms);
     if (inStock === null) console.warn(`무도수 판정 불가: ${item.name}`);
+    // 재고 수량 추적: 수량이 변한 경우에만 기록 (무료 티어 보호)
+    const qty = planoStockFromOms(oms);
+    if (qty !== null && qty !== product.plano_stock) {
+      extra.plano_stock = qty;
+      await db.from("stock_levels").insert({ product_id: product.id, stock: qty });
+    }
     await applyStatus(product, inStock, extra);
     await sleep(800);
   }

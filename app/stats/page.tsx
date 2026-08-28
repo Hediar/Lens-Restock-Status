@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import { supabase, SITE_LABEL, Site } from "@/lib/supabase";
 
 interface CheckRow { product_id: string; in_stock: boolean; changed_at: string; }
-interface ProdRow { id: string; name: string; site: Site; }
+interface ProdRow { id: string; name: string; site: Site; plano_stock?: number | null; tracking?: boolean; }
+interface LevelRow { product_id: string; stock: number; recorded_at: string; }
 
 const DAYS = ["일", "월", "화", "수", "목", "금", "토"];
 const BUCKETS = ["0-4", "4-8", "8-12", "12-16", "16-20", "20-24"];
@@ -12,15 +13,18 @@ const BUCKETS = ["0-4", "4-8", "8-12", "12-16", "16-20", "20-24"];
 export default function StatsPage() {
   const [checks, setChecks] = useState<CheckRow[] | null>(null);
   const [prods, setProds] = useState<Map<string, ProdRow>>(new Map());
+  const [levelRows, setLevelRows] = useState<LevelRow[]>([]);
 
   useEffect(() => {
     (async () => {
-      const [c, p] = await Promise.all([
+      const [c, p, lv] = await Promise.all([
         supabase.from("stock_checks").select("product_id,in_stock,changed_at").order("changed_at").limit(3000),
-        supabase.from("products").select("id,name,site"),
+        supabase.from("products").select("id,name,site,plano_stock,tracking"),
+        supabase.from("stock_levels").select("product_id,stock,recorded_at").order("recorded_at").limit(3000),
       ]);
       setProds(new Map(((p.data ?? []) as ProdRow[]).map((r) => [r.id, r])));
       setChecks((c.data as CheckRow[]) ?? []);
+      setLevelRows((lv.data as LevelRow[]) ?? []);
     })();
   }, []);
 
@@ -97,6 +101,46 @@ export default function StatsPage() {
         ))}
       </div>
       <p className="sub" style={{ marginTop: 8 }}>진한 칸일수록 재입고가 잦은 시간대예요.</p>
+
+      <h2 className="sec">무도수 재고 수량 · 소진 추이 (렌시스)</h2>
+      {(() => {
+        const byProduct = new Map<string, LevelRow[]>();
+        for (const r of levelRows) {
+          const list = byProduct.get(r.product_id) ?? [];
+          list.push(r);
+          byProduct.set(r.product_id, list);
+        }
+        const rows = [...prods.values()]
+          .filter((p) => p.site === "lenssis" && p.tracking !== false && p.plano_stock != null)
+          .map((p) => {
+            const hist = byProduct.get(p.id) ?? [];
+            const weekAgoTs = Date.now() - 7 * 86400_000;
+            const recent = hist.filter((h) => new Date(h.recorded_at).getTime() >= weekAgoTs);
+            const delta = recent.length >= 2 ? recent[recent.length - 1].stock - recent[0].stock : null;
+            return { p, delta };
+          })
+          .sort((a, b) => (a.delta ?? 0) - (b.delta ?? 0))
+          .slice(0, 10);
+        if (!rows.length) return <div className="empty">수량 이력이 쌓이는 중이에요 (크론이 변화를 감지하면 기록됩니다).</div>;
+        return (
+          <div className="rank">
+            {rows.map(({ p, delta }) => (
+              <div className="rrow" key={p.id}>
+                <span className="rname">{p.name}</span>
+                <span className="rn" style={{ width: "auto" }}>
+                  {p.plano_stock!.toLocaleString()}개
+                  {delta != null && delta !== 0 && (
+                    <span style={{ color: delta < 0 ? "var(--out)" : "var(--ok)", marginLeft: 6 }}>
+                      ({delta > 0 ? "+" : ""}{delta.toLocaleString()}/7일)
+                    </span>
+                  )}
+                </span>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
+      <p className="sub" style={{ marginTop: 8 }}>소진이 빠른 순으로 상위 10개. 감소 추세면 상세에서 예상 품절일을 보여드려요.</p>
     </main>
   );
 }

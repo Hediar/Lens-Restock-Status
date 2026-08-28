@@ -79,3 +79,22 @@ export async function fetchOmsProduct(fetchJsonFn, idx, cookie) {
   const referer = new URL(`${BASE}/325460388/?idx=${idx}`).href;
   return fetchJsonFn(api, { cookie, referer });
 }
+
+// 무도수 옵션의 실재고 수량 (판매중 detail의 stock 합). 무제한/파싱불가 → null
+export function planoStockFromOms(json) {
+  const d = json?.data;
+  if (!d || d.stock_unlimit) return null;
+  const options = Array.isArray(d.options) ? d.options : [];
+  const planoCodes = new Set();
+  for (const opt of options) {
+    for (const [code, label] of Object.entries(opt.value_list ?? {})) {
+      if (normalizeText(label) === normalizeText("무도수")) planoCodes.add(code);
+    }
+  }
+  if (!planoCodes.size) return null;
+  const details = (Array.isArray(d.options_detail) ? d.options_detail : []).filter(
+    (od) => (od.value_code_list ?? []).some((c) => planoCodes.has(c))
+  );
+  if (!details.length) return null;
+  return details.reduce((sum, od) => sum + (Number(od.stock) || 0), 0);
+}
