@@ -10,6 +10,22 @@ if (!SUPABASE_URL || !SERVICE_KEY) {
   console.error("SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY 필요");
   process.exit(1);
 }
+// 키 검증: anon/publishable 키가 잘못 들어간 경우 조기 실패
+if (SERVICE_KEY.startsWith("sb_publishable_")) {
+  console.error("❌ publishable(anon) 키가 설정됨 — service_role(sb_secret_) 키로 교체하세요");
+  process.exit(1);
+}
+try {
+  const payload = JSON.parse(
+    Buffer.from(SERVICE_KEY.split(".")[1], "base64url").toString()
+  );
+  if (payload.role && payload.role !== "service_role") {
+    console.error(`❌ '${payload.role}' 키가 설정됨 — service_role 키로 교체하세요`);
+    process.exit(1);
+  }
+} catch {
+  /* sb_secret_ 등 JWT가 아닌 키는 통과 */
+}
 const db = createClient(SUPABASE_URL, SERVICE_KEY);
 
 const UA =
