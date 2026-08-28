@@ -2,12 +2,7 @@
 // 사용 env: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
 import { createClient } from "@supabase/supabase-js";
 import webpush from "web-push";
-import {
-  fetchLenssisProducts,
-  fetchShippingMap,
-  planoInStock,
-  extractBuyUrl,
-} from "./parsers/lenssis.mjs";
+import { fetchLenssisOneDay } from "./parsers/lenssis.mjs";
 import { discoverPureble, parseLenblingProduct } from "./parsers/lenbling.mjs";
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -128,42 +123,17 @@ async function upsertProduct(site, { url, name, image = null, colorDesc = null }
 }
 
 async function runLenssis() {
-  console.log("── 렌시스 스윕");
-  // 무도수 재고의 진실 원천: lenssis-online 정상배송(재고 보유) 화이트리스트
-  const map = await fetchShippingMap(fetchHtml);
-  if (!map) {
-    console.warn("정상배송 맵 로드 실패 — 렌시스 상태 갱신 스킵");
-    return;
-  }
-  console.log(`정상배송 맵 ${map.size}개 항목 로드`);
-  await sleep(1500);
-
-  // 카탈로그 목록: 신상품 발견 + 이름/이미지 수집용
-  const all = await fetchLenssisProducts(fetchHtml);
-  const listed = all.filter((p) => p.name.includes("원데이"));
-  console.log(`목록 ${all.length}개 중 원데이 ${listed.length}개`);
-  for (const item of listed) {
-    await upsertProduct("lenssis", item);
-  }
-
-  // 추적 중인 전 상품: 맵 기준 무도수 재고 판정 (+구매 링크 1회 수집)
-  const { data: tracked } = await db
-    .from("products")
-    .select("*")
-    .eq("site", "lenssis")
-    .eq("tracking", true);
-  const imageByUrl = new Map(listed.map((i) => [i.url, i.image]));
-  for (const p of tracked ?? []) {
+  console.log("── 렌시스 스윕 (원데이 카테고리 1회 요청)");
+  const { products, mapLoaded } = await fetchLenssisOneDay(fetchHtml);
+  console.log(`원데이 ${products.length}개, 정상배송 맵: ${mapLoaded ? "OK" : "실패"}`);
+  if (!products.length) return;
+  for (const item of products) {
+    const product = await upsertProduct("lenssis", item);
+    if (!product) continue;
     const extra = {};
-    const img = imageByUrl.get(p.url);
-    if (img && !p.image_url) extra.image_url = img;
-    if (!p.buy_url) {
-      const html = await fetchHtml(p.url);
-      const buyUrl = extractBuyUrl(html);
-      if (buyUrl) extra.buy_url = buyUrl;
-      await sleep(1500);
-    }
-    await applyStatus(p, planoInStock(map, p.name), extra);
+    if (item.image && !product.image_url) extra.image_url = item.image;
+    if (!product.buy_url) extra.buy_url = item.url;
+    await applyStatus(product, item.inStock, extra);
   }
 }
 
